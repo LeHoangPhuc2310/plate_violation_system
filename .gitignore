@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Models
+*.pt
+models/
+
+# Videos & Images Uploads
+static/uploads/
+static/violation_videos/
+uploads/
+video.mp4
+violation_3s.mp4
+
+# Dataset
+runs/
+data/*.csv
+data/*.jpg
+data/*.png
+
+# Logs
+*.log
+
+# OS
+Thumbs.db

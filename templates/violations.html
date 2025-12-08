@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Violations</title></head>
+<body>
+  <h2>Violation list</h2>
+  {% for item in data %}
+    <div style="margin-bottom:18px; border:1px solid #ddd; padding:8px;">
+      <img src="{{ item.image }}" width="200"/>
+
+      <p>
+        <strong>{{ item.plate }}</strong> |
+        {{ item.speed|round(1) }} km/h |
+        {{ item.time }}
+      </p>
+
+      {% if item.owner_name %}
+        <p>
+          Chủ xe: {{ item.owner_name }}
+          | SDT: {{ item.phone }}
+          | Địa chỉ: {{ item.address }}
+        </p>
+      {% endif %}
+    </div>
+  {% endfor %}
+  <a href="/">Back</a>
+</body>
+</html>
