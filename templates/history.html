@@ -128,11 +128,13 @@
     </div>
 </div>
 
-
 <h2 class="mb-4 font-weight-bold">📑 Lịch sử vi phạm</h2>
 
-<div class="card p-4">
+{% if violation_count %}
+<p><b>Số lần vi phạm:</b> {{ violation_count }}</p>
+{% endif %}
 
+<div class="card p-4">
     <div class="table-container">
         <table>
             <thead>
@@ -147,7 +149,6 @@
                 <th>Ảnh</th>
             </tr>
             </thead>
-
             <tbody>
             {% for r in rows %}
             <tr>
@@ -158,7 +159,6 @@
                 <td>{{ r.speed }}</td>
                 <td>{{ r.speed_limit }}</td>
                 <td>{{ r.time }}</td>
-
                 <td>
                     {% if r.image %}
                         <img src="/static/uploads/{{ r.image }}" class="history-img">
@@ -169,11 +169,10 @@
             </tr>
             {% endfor %}
             </tbody>
-
         </table>
     </div>
-
 </div>
+
 
 </body>
 </html>

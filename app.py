@@ -2,6 +2,7 @@ from flask import Flask, Response, render_template, request, jsonify
 from flask_mysqldb import MySQL
 import cv2
 import time
+import json
 import os
 import requests
 from collections import deque
@@ -17,12 +18,19 @@ app = Flask(__name__)
 # ======================
 # DATABASE CONFIG
 # ======================
-app.config['MYSQL_HOST'] = 'database-1.c5s02mk0i88r.ap-southeast-2.rds.amazonaws.com'
+# app.config['MYSQL_HOST'] = 'database-1.c5s02mk0i88r.ap-southeast-2.rds.amazonaws.com'
+# app.config['MYSQL_USER'] = 'root'
+# app.config['MYSQL_PASSWORD'] = '123aZZ'
+# app.config['MYSQL_DB'] = 'plate_violation'
+# app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
+
+
+
+app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = '123aZZ'
+app.config['MYSQL_PASSWORD'] = ''
 app.config['MYSQL_DB'] = 'plate_violation'
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
-
 mysql = MySQL(app)
 
 # ======================
@@ -248,20 +256,37 @@ def history():
     to_date = request.args.get("to_date")
     speed_over = request.args.get("speed_over")
 
+    # Lấy dữ liệu vi phạm
     query = """SELECT v.plate, o.owner_name, o.address, o.phone, v.speed, v.speed_limit, v.time, v.image
                FROM violations v
                LEFT JOIN vehicle_owner o ON v.plate=o.plate
                WHERE 1=1"""
     params = []
-    if plate: params += ["%" + plate + "%"]; query += " AND v.plate LIKE %s"
-    if from_date: params += [from_date+" 00:00:00"]; query += " AND v.time >= %s"
-    if to_date: params += [to_date+" 23:59:59"]; query += " AND v.time <= %s"
-    if speed_over: params += [speed_over]; query += " AND v.speed > %s"
-    query += " ORDER BY v.time DESC"
+    if plate:
+        params += ["%" + plate + "%"]
+        query += " AND v.plate LIKE %s"
+    if from_date:
+        params += [from_date+" 00:00:00"]
+        query += " AND v.time >= %s"
+    if to_date:
+        params += [to_date+" 23:59:59"]
+        query += " AND v.time <= %s"
+    if speed_over:
+        params += [speed_over]
+        query += " AND v.speed > %s"
 
+    query += " ORDER BY v.time DESC"
     cursor.execute(query, params)
     rows = cursor.fetchall()
-    return render_template("history.html", rows=rows)
+
+    # Tính số lần vi phạm theo chủ xe (hoặc theo biển số)
+    violation_count = 0
+    if plate:
+        cursor.execute("SELECT COUNT(*) AS cnt FROM violations v WHERE v.plate LIKE %s", ("%" + plate + "%",))
+        violation_count = cursor.fetchone()["cnt"]
+
+    return render_template("history.html", rows=rows, violation_count=violation_count)
+
 
 @app.route("/autocomplete")
 def autocomplete():
