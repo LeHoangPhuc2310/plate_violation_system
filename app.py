@@ -1,3 +1,5 @@
+# import pymysql
+# pymysql.install_as_MySQLdb()
 from flask import Flask, Response, render_template, request, jsonify
 from flask_mysqldb import MySQL
 import cv2
@@ -76,11 +78,20 @@ app = Flask(__name__)
 # ======================
 # DATABASE CONFIG
 # ======================
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = '123aZZ'
+app.config['MYSQL_HOST'] = 'database-1.c5s02mk0i88r.ap-southeast-2.rds.amazonaws.com'
+app.config['MYSQL_USER'] = 'plate_violation'
+app.config['MYSQL_PASSWORD'] = '0948411795aZZ'
 app.config['MYSQL_DB'] = 'plate_violation'
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
+
+
+# app.config['MYSQL_HOST'] = 'localhost'
+# app.config['MYSQL_USER'] = 'root'
+# app.config['MYSQL_PASSWORD'] = '123aZZ'
+# app.config['MYSQL_DB'] = 'plate_violation'
+# app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
+
+
 
 mysql = MySQL(app)
 
