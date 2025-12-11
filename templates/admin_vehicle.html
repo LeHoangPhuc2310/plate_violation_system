@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Quản lý chủ xe{% endblock %}
+
+{% block page_title %}<i class="fas fa-cogs"></i> Quản lý chủ xe{% endblock %}
+
+{% block content %}
+<!-- BỘ LỌC -->
+<div class="card p-4 mb-4">
+    <h5 class="mb-3 font-weight-bold">
+        <i class="fas fa-filter"></i> Bộ lọc tìm kiếm
+    </h5>
+    <form method="GET" action="/admin/vehicles">
+        <div class="form-row">
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-car"></i> Biển số</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-primary text-white"><i class="fas fa-id-card"></i></span>
+                    </div>
+                    <input type="text" name="plate" class="form-control" 
+                           placeholder="VD: 29H95559" 
+                           value="{{ plate or '' }}"
+                           autocomplete="off">
+                </div>
+            </div>
+
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-user"></i> Tên chủ xe</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-success text-white"><i class="fas fa-user-circle"></i></span>
+                    </div>
+                    <input type="text" name="owner_name" class="form-control" 
+                           placeholder="Nhập tên chủ xe" 
+                           value="{{ owner_name or '' }}"
+                           autocomplete="off">
+                </div>
+            </div>
+
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-map-marker-alt"></i> Địa chỉ</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-warning text-white"><i class="fas fa-map-pin"></i></span>
+                    </div>
+                    <input type="text" name="address" class="form-control" 
+                           placeholder="Nhập địa chỉ" 
+                           value="{{ address or '' }}"
+                           autocomplete="off">
+                </div>
+            </div>
+
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-phone"></i> Số điện thoại</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-info text-white"><i class="fas fa-phone-alt"></i></span>
+                    </div>
+                    <input type="text" name="phone" class="form-control" 
+                           placeholder="VD: 0123456789" 
+                           value="{{ phone or '' }}"
+                           autocomplete="off">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group col-md-12">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-search"></i> Lọc dữ liệu
+                </button>
+                <a href="/admin/vehicles" class="btn btn-secondary ml-2">
+                    <i class="fas fa-redo"></i> Xóa bộ lọc
+                </a>
+                <span class="ml-3 text-muted">
+                    <i class="fas fa-info-circle"></i> Tìm thấy: <strong>{{ data|length }}</strong> kết quả
+                </span>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">
+            <i class="fas fa-list"></i> Danh sách chủ xe
+        </h5>
+        <span class="badge badge-info">{{ data|length }} chủ xe</span>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+            <tr>
+                <th><i class="fas fa-car"></i> Biển số</th>
+                <th><i class="fas fa-user"></i> Tên chủ xe</th>
+                <th><i class="fas fa-map-marker-alt"></i> Địa chỉ</th>
+                <th><i class="fas fa-phone"></i> SĐT</th>
+                <th><i class="fas fa-cogs"></i> Hành động</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% if data %}
+                {% for row in data %}
+                <tr>
+                    <td><strong>{{ row.plate }}</strong></td>
+                    <td>{{ row.owner_name or 'Chưa có' }}</td>
+                    <td>{{ row.address or 'Chưa có' }}</td>
+                    <td>{{ row.phone or 'Chưa có' }}</td>
+                    <td>
+                        <a href="/edit_owner/{{ row.plate }}" class="btn btn-sm btn-primary">
+                            <i class="fas fa-edit"></i> Sửa
+                        </a>
+                        <a href="/delete/{{ row.plate }}" class="btn btn-sm btn-danger" 
+                           onclick="return confirm('Bạn có chắc muốn xóa chủ xe {{ row.plate }}?')">
+                            <i class="fas fa-trash"></i> Xóa
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted">
+                        <i class="fas fa-inbox"></i> Không tìm thấy dữ liệu
+                    </td>
+                </tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

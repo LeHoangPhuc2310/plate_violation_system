@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng nhập hệ thống</title>
+
+    <!-- Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Google font -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #F0F3F9;
+            font-family: "Poppins", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 25px;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 450px;
+        }
+
+        .school-header {
+            background: #ffffff;
+            padding: 20px 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .school-logo {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
+            margin-bottom: 15px;
+        }
+
+        .school-name {
+            margin: 0;
+            font-weight: 800;
+            color: #b40000;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .school-branch {
+            margin: 0;
+            font-weight: 600;
+            color: #444;
+            font-size: 16px;
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 18px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+            padding: 40px;
+            border: none;
+        }
+
+        .login-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .login-subtitle {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-control {
+            border-radius: 10px;
+            border: 2px solid #e2e2e2;
+            padding: 12px 15px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .form-control:focus {
+            border-color: #0066ff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 102, 255, 0.15);
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 16px;
+            background: #0066ff;
+            border: none;
+            color: white;
+            transition: all 0.3s;
+        }
+
+        .btn-login:hover {
+            background: #0052cc;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 102, 255, 0.3);
+        }
+
+        .alert-error {
+            background: #ffebee;
+            border: 2px solid #f44336;
+            color: #c62828;
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .author-box {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 8px 15px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- Header -->
+        <div class="school-header">
+            <img src="/static/img/logo_bdu.png" class="school-logo" alt="Logo">
+            <h2 class="school-name">TRƯỜNG ĐẠI HỌC BÌNH DƯƠNG</h2>
+            <h4 class="school-branch">PHÂN HIỆU CÀ MAU</h4>
+        </div>
+
+        <!-- Login Card -->
+        <div class="login-card">
+            <h2 class="login-title"><i class="fas fa-shield-alt"></i> Đăng nhập</h2>
+            <p class="login-subtitle"><i class="fas fa-traffic-light"></i> Hệ thống nhận diện biển số & tính toán tốc độ</p>
+
+            {% if error %}
+                <div class="alert-error">
+                    ⚠️ {{ error }}
+                </div>
+            {% endif %}
+
+            <form method="post">
+                <div class="form-group">
+                    <label for="username"><i class="fas fa-user"></i> Tên đăng nhập</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-primary text-white"><i class="fas fa-user-circle"></i></span>
+                        </div>
+                        <input type="text" 
+                               class="form-control" 
+                               id="username" 
+                               name="username" 
+                               placeholder="Nhập tên đăng nhập"
+                               required 
+                               autofocus>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="password"><i class="fas fa-lock"></i> Mật khẩu</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-danger text-white"><i class="fas fa-key"></i></span>
+                        </div>
+                        <input type="password" 
+                               class="form-control" 
+                               id="password" 
+                               name="password" 
+                               placeholder="Nhập mật khẩu"
+                               required>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-login">
+                    <i class="fas fa-sign-in-alt"></i> Đăng nhập
+                </button>
+            </form>
+
+            <div class="author-box">
+                SINH VIÊN THỰC HIỆN: <b>LÊ HOÀNG PHÚC</b> — MSSV <b>190501014</b>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</body>
+</html>

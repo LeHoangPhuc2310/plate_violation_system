@@ -1,4 +1,30 @@
-opencv-python~=4.12.0.88
-requests~=2.32.5
-Flask~=3.1.2
-SQLAlchemy~=2.0.44
+# Flask và Web Framework
+Flask==2.3.3
+flask-mysqldb==1.0.1
+Werkzeug==2.3.7
+
+# Computer Vision và AI
+opencv-python==4.8.1.78
+numpy==1.24.3
+torch==2.1.0
+torchvision==0.16.0
+ultralytics==8.1.0
+fast-alpr==1.0.0
+
+# Image Processing (optional - cho enhanced_plate_detector)
+# easyocr==1.7.0  # Uncomment nếu muốn dùng EasyOCR fallback
+
+# Database
+PyMySQL==1.1.0
+mysqlclient==2.2.0
+
+# Tracking và Filtering
+filterpy==1.4.5
+scipy==1.11.4
+
+# HTTP Requests
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
+

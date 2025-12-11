@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Hệ thống vi phạm tốc độ{% endblock %}</title>
+
+    <!-- Bootstrap - TỐI ƯU: Preconnect để tăng tốc -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome - TỐI ƯU: Preconnect -->
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <!-- Google font - TỐI ƯU: Preconnect và display=swap -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #F0F3F9;
+            font-family: "Poppins", sans-serif;
+            padding: 25px;
+            min-height: 100vh;
+        }
+
+        .school-header {
+            background: #ffffff;
+            padding: 14px 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+            margin-bottom: 25px;
+        }
+
+        .school-logo {
+            width: 75px;
+            height: 75px;
+            object-fit: contain;
+        }
+
+        .school-name {
+            margin: 0;
+            font-weight: 800;
+            color: #b40000;
+            font-size: 26px;
+        }
+
+        .school-branch {
+            margin: 0;
+            font-weight: 600;
+            color: #444;
+            font-size: 16px;
+        }
+
+        .author-box {
+            font-size: 14px;
+            font-weight: 600;
+            padding: 6px 15px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            white-space: nowrap;
+        }
+
+        .card {
+            border-radius: 18px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+            border: none;
+            background: white;
+        }
+
+        .table-container {
+            max-height: 650px;
+            overflow-y: auto;
+            border-radius: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            background: #0066ff;
+            color: white;
+            z-index: 9;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 14px;
+        }
+
+        th, td {
+            border: 1px solid #e2e2e2;
+            padding: 12px;
+            text-align: center;
+            vertical-align: middle !important;
+        }
+
+        tbody tr:hover {
+            background: #eef5ff;
+            transition: 0.15s;
+        }
+
+        .history-img {
+            width: 120px;
+            border-radius: 8px;
+            border: 3px solid #1d7cff;
+            object-fit: cover;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .history-img:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(29, 124, 255, 0.4);
+        }
+
+        .plate-img {
+            width: 150px;
+            height: 60px;
+            border-radius: 8px;
+            border: 2px solid #ffc107;
+            object-fit: cover;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .plate-img:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(255, 193, 7, 0.4);
+        }
+        
+        /* Form styling - giống hệ thống giao thông thực tế */
+        .form-group label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .form-group label i {
+            margin-right: 5px;
+            color: #0066ff;
+        }
+        
+        /* Alert box styling */
+        .alert {
+            border-radius: 8px;
+            border-left: 4px solid;
+            font-weight: 500;
+        }
+        
+        .alert-info {
+            border-left-color: #17a2b8;
+        }
+        
+        .alert-success {
+            border-left-color: #28a745;
+        }
+        
+        .alert-danger {
+            border-left-color: #dc3545;
+        }
+        
+        .alert-warning {
+            border-left-color: #ffc107;
+        }
+        
+        /* Video preview styling */
+        .video-preview {
+            border-radius: 8px;
+            border: 3px solid #28a745;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .video-preview:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            display: inline-block;
+        }
+
+        .status-sent {
+            background: #28a745;
+            color: white;
+        }
+
+        .status-pending {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .status-failed {
+            background: #dc3545;
+            color: white;
+        }
+
+        .video-preview {
+            width: 200px;
+            border-radius: 10px;
+            border: 3px solid #28a745;
+            cursor: pointer;
+        }
+
+        .video-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+        }
+
+        .video-modal-content {
+            margin: auto;
+            display: block;
+            width: 80%;
+            max-width: 900px;
+            margin-top: 50px;
+        }
+
+        .close-video {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-video:hover {
+            color: #fff;
+        }
+
+        .nav-buttons {
+            margin-bottom: 20px;
+        }
+
+        .nav-buttons .btn {
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        /* Input group styling - giống hệ thống giao thông thực tế */
+        .input-group-text {
+            border-radius: 0;
+            border: 2px solid transparent;
+            font-weight: 600;
+            min-width: 45px;
+            justify-content: center;
+        }
+        
+        .input-group .form-control {
+            border-left: none;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .input-group-prepend .input-group-text {
+            border-radius: 8px 0 0 8px;
+        }
+        
+        .form-control:focus {
+            border-color: #0066ff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 102, 255, 0.15);
+        }
+        
+        /* Button styling - giống hệ thống giao thông */
+        .btn {
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .btn i {
+            margin-right: 5px;
+        }
+        
+        /* Card styling - giống hệ thống giao thông */
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border: 1px solid #e0e0e0;
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, #0066ff 0%, #0052cc 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+            font-weight: 700;
+        }
+        
+        /* Table styling - giống hệ thống giao thông */
+        thead th {
+            background: linear-gradient(135deg, #0066ff 0%, #0052cc 100%);
+            color: white;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+        }
+        
+        thead th i {
+            margin-right: 5px;
+        }
+        
+        tbody tr {
+            transition: all 0.2s ease;
+        }
+        
+        tbody tr:hover {
+            background: #f0f7ff;
+            transform: scale(1.01);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        /* Badge styling */
+        .badge {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        
+        .page-title {
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 20px;
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="school-header d-flex align-items-center justify-content-between flex-wrap">
+    <div class="d-flex align-items-center">
+        <img src="/static/img/logo_bdu.png" class="school-logo" alt="Logo">
+        <div class="ml-3">
+            <h2 class="school-name">TRƯỜNG ĐẠI HỌC BÌNH DƯƠNG</h2>
+            <h4 class="school-branch">PHÂN HIỆU CÀ MAU</h4>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center flex-wrap mt-2 mt-md-0">
+        <div class="author-box mr-3 mb-2 mb-md-0">
+            SINH VIÊN THỰC HIỆN: <b>LÊ HOÀNG PHÚC</b> — MSSV <b>190501014</b>
+        </div>
+        <div class="d-flex align-items-center">
+            <span class="mr-3" style="font-weight:600; color:#333;">
+                👤 {{ session.get('user', 'Khách') }}
+                — <span style="color:#007bff;">{{ session.get('role', 'viewer') }}</span>
+            </span>
+            <a href="/home" class="btn btn-primary btn-sm mr-2">
+                <i class="fas fa-home"></i> Trang chủ
+            </a>
+            <a href="/logout" class="btn btn-danger btn-sm">
+                <i class="fas fa-sign-out-alt"></i> Đăng Xuất
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Navigation Bar với Dashboard -->
+<div class="nav-bar-container">
+    <div class="nav-bar">
+        <a href="/" class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+            <i class="fas fa-tachometer-alt"></i>
+            <span>Dashboard</span>
+        </a>
+        <a href="/history" class="nav-item {% if request.endpoint == 'history' %}active{% endif %}">
+            <i class="fas fa-list-alt"></i>
+            <span>Xem vi phạm</span>
+        </a>
+        <a href="/" class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+            <i class="fas fa-video"></i>
+            <span>Xem camera</span>
+        </a>
+        {% if session.get('role') == 'admin' %}
+        <a href="/admin/vehicles" class="nav-item {% if request.endpoint == 'manage_vehicle' %}active{% endif %}">
+            <i class="fas fa-cogs"></i>
+            <span>Quản trị</span>
+        </a>
+        {% endif %}
+        <a href="/home" class="nav-item {% if request.endpoint == 'home' %}active{% endif %}">
+            <i class="fas fa-home"></i>
+            <span>Trang chủ</span>
+        </a>
+    </div>
+</div>
+
+<!-- Page Title -->
+<h2 class="page-title">{% block page_title %}{% endblock %}</h2>
+
+<!-- Main Content -->
+{% block content %}{% endblock %}
+
+<!-- Video Modal -->
+<div id="videoModal" class="video-modal">
+    <span class="close-video" onclick="closeVideoModal()">&times;</span>
+    <video class="video-modal-content" id="modalVideo" controls>
+        Trình duyệt không hỗ trợ video.
+    </video>
+</div>
+
+<script>
+function openVideoModal(videoSrc) {
+    const modal = document.getElementById('videoModal');
+    const video = document.getElementById('modalVideo');
+    video.src = videoSrc;
+    modal.style.display = 'block';
+}
+
+function closeVideoModal() {
+    const modal = document.getElementById('videoModal');
+    const video = document.getElementById('modalVideo');
+    video.pause();
+    video.src = '';
+    modal.style.display = 'none';
+}
+
+// Đóng modal khi click bên ngoài
+window.onclick = function(event) {
+    const modal = document.getElementById('videoModal');
+    if (event.target == modal) {
+        closeVideoModal();
+    }
+}
+</script>
+
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>
+

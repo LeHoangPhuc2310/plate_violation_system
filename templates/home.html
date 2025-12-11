@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Trang chính hệ thống{% endblock %}
+
+{% block nav_buttons %}
+<!-- Navigation buttons đã có trong base template -->
+{% endblock %}
+
+{% block page_title %}<i class="fas fa-hand-paper"></i> Xin chào, {{ user }}{% endblock %}
+
+{% block content %}
+<div class="card p-4">
+    <div class="text-center">
+        <p class="mb-3">Vai trò của bạn: <b class="text-primary">{{ role }}</b></p>
+
+        <hr class="my-4">
+
+        <h4 class="mb-4">Chọn chức năng:</h4>
+
+        <div class="d-flex flex-wrap justify-content-center gap-3">
+            <a href="/history" class="btn btn-success btn-lg">
+                <i class="fas fa-list-alt"></i> Xem vi phạm
+            </a>
+            <a href="/" class="btn btn-secondary btn-lg">
+                <i class="fas fa-video"></i> Xem camera
+            </a>
+
+            {% if role == "admin" %}
+            <a href="/admin/vehicles" class="btn btn-warning btn-lg">
+                <i class="fas fa-cogs"></i> Trang quản trị
+            </a>
+            {% endif %}
+
+            <a href="/logout" class="btn btn-danger btn-lg">
+                <i class="fas fa-sign-out-alt"></i> Đăng xuất
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

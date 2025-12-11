@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Sửa thông tin chủ xe{% endblock %}
+
+{% block page_title %}<i class="fas fa-edit"></i> Sửa thông tin chủ xe{% endblock %}
+
+{% block content %}
+<div class="card p-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <form method="POST" action="/edit_owner/{{ owner.plate }}" id="editOwnerForm">
+                <div class="form-group">
+                    <label class="font-weight-bold"><i class="fas fa-car"></i> Biển số:</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-secondary text-white"><i class="fas fa-id-card"></i></span>
+                        </div>
+                        <input type="text" class="form-control" value="{{ owner.plate }}" disabled>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="font-weight-bold"><i class="fas fa-user"></i> Tên chủ xe:</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-success text-white"><i class="fas fa-user-circle"></i></span>
+                        </div>
+                        <input type="text" class="form-control" name="owner_name" value="{{ owner.owner_name or '' }}" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="font-weight-bold"><i class="fas fa-map-marker-alt"></i> Địa chỉ:</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-warning text-white"><i class="fas fa-map-pin"></i></span>
+                        </div>
+                        <input type="text" class="form-control" name="address" value="{{ owner.address or '' }}" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="font-weight-bold"><i class="fas fa-phone"></i> Số điện thoại:</label>
+                    <div class="input-group">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text bg-info text-white"><i class="fas fa-phone-alt"></i></span>
+                        </div>
+                        <input type="text" class="form-control" name="phone" value="{{ owner.phone or '' }}" required>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-save"></i> Lưu thay đổi
+                    </button>
+                    <a href="/admin/vehicles" class="btn btn-secondary btn-lg ml-2">
+                        <i class="fas fa-arrow-left"></i> Quay lại
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Success Modal -->
+<div class="modal fade" id="successModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">✅ Thành công</h5>
+                <button type="button" class="close text-white" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Đã sửa thông tin chủ xe thành công!</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-success" data-dismiss="modal">Đóng</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#editOwnerForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = $(this).serialize();
+        const formAction = $(this).attr('action');
+        
+        $.ajax({
+            url: formAction,
+            type: 'POST',
+            data: formData,
+            success: function(response) {
+                $('#successModal').modal('show');
+                // Có thể reload lại dữ liệu nếu cần
+                setTimeout(function() {
+                    window.location.href = '/admin/vehicles';
+                }, 1500);
+            },
+            error: function() {
+                alert('Có lỗi xảy ra khi lưu thông tin!');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

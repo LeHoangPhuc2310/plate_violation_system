@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}Xem vi phạm{% endblock %}
+
+{% block page_title %}<i class="fas fa-clipboard-list"></i> XEM VI PHẠM{% endblock %}
+
+{% block content %}
+{% if violation_count %}
+<div class="alert alert-info mb-3">
+    <i class="fas fa-info-circle"></i> <b>Số lần vi phạm:</b> {{ violation_count }}
+</div>
+{% endif %}
+
+<!-- ALERT BOX -->
+<div id="alert-box"
+     class="d-none"
+     style="background: #d1ecf1;
+            border: 1px solid #17a2b8;
+            padding: 12px 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+</div>
+
+<!-- BỘ LỌC -->
+<div class="card p-4 mb-4">
+    <h5 class="mb-3 font-weight-bold">
+        <i class="fas fa-filter"></i> Bộ lọc tìm kiếm
+    </h5>
+    <form method="GET" action="/history">
+        <div class="form-row">
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-car"></i> Biển số</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-primary text-white"><i class="fas fa-id-card"></i></span>
+                    </div>
+                    <input type="text" name="plate" id="plateInput" class="form-control" 
+                           placeholder="VD: 29H95559" 
+                           value="{{ request.args.get('plate', '') }}"
+                           autocomplete="off">
+                </div>
+                <div id="suggestions" class="autocomplete-box"></div>
+            </div>
+
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-calendar-alt"></i> Từ ngày</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-info text-white"><i class="fas fa-calendar"></i></span>
+                    </div>
+                    <input type="date" name="from_date" class="form-control" 
+                           value="{{ request.args.get('from_date', '') }}">
+                </div>
+            </div>
+
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-calendar-check"></i> Đến ngày</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-info text-white"><i class="fas fa-calendar"></i></span>
+                    </div>
+                    <input type="date" name="to_date" class="form-control" 
+                           value="{{ request.args.get('to_date', '') }}">
+                </div>
+            </div>
+
+            <div class="form-group col-md-3">
+                <label><i class="fas fa-tachometer-alt"></i> Mức vượt tốc độ</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text bg-danger text-white"><i class="fas fa-exclamation-triangle"></i></span>
+                    </div>
+                    <select name="speed_over" class="form-control">
+                        <option value="">-- Tất cả --</option>
+                        <option value="40" {% if request.args.get('speed_over') == '40' %}selected{% endif %}>Vượt quá 40 km/h</option>
+                        <option value="60" {% if request.args.get('speed_over') == '60' %}selected{% endif %}>Vượt quá 60 km/h</option>
+                        <option value="80" {% if request.args.get('speed_over') == '80' %}selected{% endif %}>Vượt quá 80 km/h</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group col-md-12">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-search"></i> Lọc dữ liệu
+                </button>
+                <a href="/history" class="btn btn-secondary ml-2">
+                    <i class="fas fa-redo"></i> Xóa bộ lọc
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">
+            <i class="fas fa-list-alt"></i> Danh sách vi phạm
+        </h5>
+        <span class="badge badge-primary">{{ rows|length if rows else 0 }} vi phạm</span>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+            <tr>
+                <th><i class="fas fa-car"></i> Biển số</th>
+                <th><i class="fas fa-truck"></i> Loại xe</th>
+                <th><i class="fas fa-user"></i> Tên chủ xe</th>
+                <th><i class="fas fa-map-marker-alt"></i> Địa chỉ</th>
+                <th><i class="fas fa-phone"></i> SĐT</th>
+                <th><i class="fas fa-tachometer-alt"></i> Tốc độ</th>
+                <th><i class="fas fa-limit"></i> Giới hạn</th>
+                <th><i class="fas fa-exclamation-triangle"></i> Vượt quá</th>
+                <th><i class="fas fa-clock"></i> Thời gian</th>
+                <th><i class="fas fa-paper-plane"></i> Trạng thái</th>
+                <th><i class="fas fa-image"></i> Ảnh biển số</th>
+                <th><i class="fas fa-camera"></i> Ảnh + Hành động</th>
+            </tr>
+            </thead>
+            <tbody id="violations-table">
+            {% for r in rows %}
+            <tr>
+                <td><strong>{{ r.plate }}</strong></td>
+                <td>
+                    {% if r.vehicle_class == 'car' %}
+                        <span class="badge badge-primary">Ô TÔ</span>
+                    {% elif r.vehicle_class == 'motorcycle' %}
+                        <span class="badge badge-info">XE GẮN MÁY</span>
+                    {% elif r.vehicle_class == 'bus' %}
+                        <span class="badge badge-warning">XE BUS</span>
+                    {% elif r.vehicle_class == 'truck' %}
+                        <span class="badge badge-secondary">XE TẢI</span>
+                    {% else %}
+                        <span class="badge badge-light">N/A</span>
+                    {% endif %}
+                </td>
+                <td>{{ r.owner_name or 'Không rõ' }}</td>
+                <td>{{ r.address or 'Không rõ' }}</td>
+                <td>{{ r.phone or 'Không rõ' }}</td>
+                <td><strong style="color: {% if r.speed > r.speed_limit %}#dc3545{% else %}#28a745{% endif %};">{{ "%.1f"|format(r.speed) }} km/h</strong></td>
+                <td>{{ r.speed_limit }} km/h</td>
+                <td><strong style="color: #dc3545;">{{ "%.1f"|format(r.speed - r.speed_limit) }} km/h</strong></td>
+                <td>
+                    {% if r.time %}
+                        {% if r.time is string %}
+                            {{ r.time }}
+                        {% else %}
+                            {{ r.time.strftime('%d/%m/%Y %H:%M:%S') }}
+                        {% endif %}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.status == 'sent' %}
+                        <span class="status-badge status-sent">✅ Đã gửi</span>
+                    {% elif r.status == 'pending' %}
+                        <span class="status-badge status-pending">⏳ Đang chờ</span>
+                    {% elif r.status == 'failed' %}
+                        <span class="status-badge status-failed">❌ Gửi lỗi</span>
+                    {% else %}
+                        <span class="status-badge status-pending">⏳ Chưa gửi</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.plate_image %}
+                        <img src="/static/plate_images/{{ r.plate_image }}" 
+                             class="plate-img" 
+                             style="max-width: 100px; border-radius: 4px; cursor: pointer;" 
+                             onclick="window.open(this.src, '_blank')"
+                             alt="Biển số {{ r.plate }}">
+                    {% else %}
+                        <span class="text-muted">N/A</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.image %}
+                        <img src="/static/uploads/{{ r.image }}" 
+                             class="history-img" 
+                             style="max-width: 150px; border-radius: 4px; cursor: pointer;"
+                             onclick="window.open(this.src, '_blank')"
+                             alt="Ảnh vi phạm">
+                    {% else %}
+                        <span class="text-muted">N/A</span>
+                    {% endif %}
+
+                    {% if r.video %}
+                        <br><br>
+                        <div class="video-wrapper" style="position: relative; display: inline-block;">
+                            <video class="video-preview" onclick="openVideoModal('/static/violation_videos/{{ r.video }}')" controls>
+                                <source src="/static/violation_videos/{{ r.video }}" type="video/mp4">
+                                Trình duyệt không hỗ trợ video.
+                            </video>
+                            <div style="position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">
+                                <i class="fas fa-play-circle"></i> Video
+                            </div>
+                        </div>
+                    {% endif %}
+
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script>
+// Autocomplete cho biển số
+$(document).ready(function() {
+    $('#plateInput').on('input', function() {
+        const term = $(this).val().toUpperCase();
+        if (term.length < 2) {
+            $('#suggestions').hide();
+            return;
+        }
+        
+        $.get('/autocomplete', { q: term }, function(data) {
+            let html = '';
+            if (data.length > 0) {
+                html = '<ul class="list-group" style="position: absolute; z-index: 1000; width: 100%;">';
+                data.forEach(function(item) {
+                    html += '<li class="list-group-item" style="cursor: pointer;" onclick="$(\'#plateInput\').val(\'' + item + '\'); $(\'#suggestions\').hide();">' + item + '</li>';
+                });
+                html += '</ul>';
+            }
+            $('#suggestions').html(html).show();
+        });
+    });
+    
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#plateInput, #suggestions').length) {
+            $('#suggestions').hide();
+        }
+    });
+});
+</script>
+<style>
+.autocomplete-box {
+    position: relative;
+}
+.autocomplete-box ul {
+    margin-top: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+</style>
+{% endblock %}

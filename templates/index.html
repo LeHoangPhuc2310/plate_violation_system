@@ -1,56 +1,601 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ViPhamTocDo</title>
+{% extends "base.html" %}
 
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/static/css/style.css" rel="stylesheet">
+{% block title %}Hệ thống nhận diện biển số & tính toán tốc độ{% endblock %}
 
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-</head>
+{% block extra_css %}
+<link href="/static/css/style.css" rel="stylesheet">
+<!-- Font Awesome 6.4.0 - Latest stable version với đầy đủ icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<!-- Google font Poppins - Đồng nhất với hệ thống -->
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+    /* Đồng nhất font cho toàn bộ trang */
+    * {
+        font-family: "Poppins", sans-serif !important;
+    }
+    .hero-header {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+        border-radius: 18px;
+        padding: 30px;
+        margin-bottom: 30px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .hero-header::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="2" fill="rgba(255,255,255,0.1)"/></svg>') repeat;
+        opacity: 0.3;
+    }
+    
+    .hero-header * {
+        position: relative;
+        z-index: 1;
+    }
+    .main-title {
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: 10px;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+    }
+    .subtitle {
+        font-size: 16px;
+        opacity: 0.95;
+    }
+    .dash-card {
+        background: white;
+        border-radius: 12px;
+        padding: 25px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .dash-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(180deg, #0066ff 0%, #0052cc 100%);
+        transition: width 0.3s ease;
+    }
+    
+    .dash-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+        border-color: #0066ff;
+    }
+    
+    .dash-card:hover::before {
+        width: 100%;
+        opacity: 0.05;
+    }
+    .dash-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 15px;
+        font-size: 24px;
+        color: white;
+    }
+    .bg-red { background: #dc3545; }
+    .bg-blue { background: #007bff; }
+    .bg-green { background: #28a745; }
+    .dash-info h6 {
+        color: #666;
+        font-size: 14px;
+        margin-bottom: 10px;
+    }
+    .dash-info h2 {
+        font-size: 32px;
+        font-weight: 700;
+        color: #333;
+    }
 
-<body>
+    /* ================= MONITORING SYSTEM STYLES ================= */
+    .monitoring-card {
+        background: #1a1a2e;
+        border: 2px solid #16213e;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
 
-<!-- ============ HEADER ============ -->
-<div class="school-header d-flex align-items-center justify-content-between mb-4">
+    .monitoring-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
 
-    <div class="d-flex align-items-center">
-        <img src="/static/img/logo_bdu.png" class="school-logo" alt="Logo">
-        <div class="ml-3">
-            <h2 class="school-name">TRƯỜNG ĐẠI HỌC BÌNH DƯƠNG</h2>
-            <h4 class="school-branch">PHÂN HIỆU CÀ MAU</h4>
-        </div>
-    </div>
+    .monitoring-title {
+        color: #fff;
+        font-size: 20px;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
 
-    <!-- Thông tin sinh viên thực hiện -->
-    <div class="author-box">
-        SINH VIÊN THỰC HIỆN: <b>LÊ HOÀNG PHÚC</b> — MSSV <b>190501014</b>
-    </div>
+    .monitoring-title i {
+        color: #00d4ff;
+        font-size: 24px;
+    }
 
-</div>
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
 
+    .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #666;
+        animation: pulse 2s infinite;
+    }
 
+    .status-dot.active {
+        background: #00ff00;
+        box-shadow: 0 0 10px #00ff00;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .status-text {
+        color: #fff;
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .video-grid-wrapper {
+        background: #000;
+        border-radius: 12px;
+        padding: 15px;
+        position: relative;
+        box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+    }
+
+    .video-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr); /* 3 cột cố định */
+        gap: 15px;
+        width: 100%;
+    }
+    
+    /* Responsive: Trên màn hình nhỏ hơn, hiển thị 2 cột */
+    @media (max-width: 1200px) {
+        .video-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    
+    /* Responsive: Trên màn hình rất nhỏ, hiển thị 1 cột */
+    @media (max-width: 768px) {
+        .video-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .video-item {
+        position: relative;
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 2px solid #16213e;
+        transition: all 0.3s ease;
+    }
+
+    .video-item:hover {
+        border-color: #00d4ff;
+        box-shadow: 0 0 20px rgba(0,212,255,0.5);
+        transform: translateY(-2px);
+    }
+
+    .video-item.active {
+        border-color: #00ff00;
+        box-shadow: 0 0 25px rgba(0,255,0,0.6);
+    }
+
+    .video-item-wrapper {
+        position: relative;
+        width: 100%;
+        padding-top: 56.25%; /* 16:9 aspect ratio */
+    }
+
+    .monitoring-video {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 6px;
+    }
+
+    .video-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 40%);
+        pointer-events: none;
+        border-radius: 6px;
+    }
+
+    .video-label {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0,0,0,0.8);
+        padding: 6px 12px;
+        border-radius: 6px;
+        border-left: 3px solid #00d4ff;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        z-index: 10;
+    }
+    
+    .video-location {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.85);
+        padding: 8px 12px;
+        border-radius: 6px;
+        border-left: 3px solid #00ff00;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        z-index: 10;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .video-location:hover {
+        background: rgba(0,0,0,0.95);
+        border-left-color: #00d4ff;
+    }
+    
+    .video-location-input {
+        width: 100%;
+        background: rgba(255,255,255,0.95);
+        color: #000;
+        border: 2px solid #00d4ff;
+        border-radius: 4px;
+        padding: 6px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: "Poppins", sans-serif;
+    }
+    
+    .video-location-input:focus {
+        outline: none;
+        border-color: #00ff00;
+        box-shadow: 0 0 8px rgba(0,255,0,0.5);
+    }
+    
+    .edit-location-btn {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        background: rgba(0,212,255,0.9);
+        color: #fff;
+        border: none;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 11;
+        font-size: 12px;
+        transition: all 0.3s ease;
+    }
+    
+    .edit-location-btn:hover {
+        background: rgba(0,255,0,0.9);
+        transform: scale(1.1);
+    }
+
+    .system-info-bar {
+        display: flex;
+        gap: 20px;
+        padding: 15px 20px;
+        background: #16213e;
+        border-radius: 12px;
+        margin-top: 15px;
+        flex-wrap: wrap;
+    }
+
+    .system-info-bar .info-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .system-info-bar .info-label {
+        color: #aaa;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .system-info-bar .info-value {
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+    }
+
+    .status-active {
+        color: #00ff00 !important;
+    }
+
+    .video-controls {
+        margin-top: 20px;
+        padding: 20px;
+        background: #16213e;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .control-group {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .control-group .btn {
+        flex: 1;
+        min-width: 150px;
+        padding: 12px;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+
+    .control-group .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .upload-section {
+        margin-top: 15px;
+        padding: 15px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        border: 1px solid #00d4ff;
+    }
+
+    .upload-form {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .upload-form .form-group {
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .upload-form .form-control {
+        background: #0f3460;
+        border: 1px solid #00d4ff;
+        color: #fff;
+        border-radius: 6px;
+        padding: 8px 12px;
+    }
+
+    .upload-form .form-control:focus {
+        background: #1a4a7a;
+        border-color: #00d4ff;
+        color: #fff;
+        box-shadow: 0 0 10px rgba(0,212,255,0.3);
+    }
+
+    .upload-form .btn-sm {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+
+    /* Styles for uploaded video with detection */
+    .uploaded-video {
+        border-color: #00ff00 !important;
+        box-shadow: 0 0 20px rgba(0,255,0,0.4) !important;
+    }
+
+    .uploaded-video:hover {
+        border-color: #00ff00 !important;
+        box-shadow: 0 0 30px rgba(0,255,0,0.6) !important;
+    }
+
+    .stream-video {
+        border-radius: 6px;
+    }
+
+    .status-dot-small {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00ff00;
+        margin-right: 6px;
+        animation: pulse 2s infinite;
+        vertical-align: middle;
+    }
+    
+    /* TỐI ƯU: Video list styles - chỉ load khi click */
+    .video-list-wrapper {
+        margin-top: 20px;
+    }
+    
+    .video-list-header {
+        margin-bottom: 15px;
+    }
+    
+    .video-list-header h5 {
+        color: #fff;
+        font-weight: 600;
+        margin-bottom: 5px;
+    }
+    
+    .video-list-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 15px;
+    }
+    
+    .video-list-item {
+        background: #16213e;
+        border: 2px solid #0f3460;
+        border-radius: 8px;
+        padding: 15px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+    
+    .video-list-item:hover {
+        border-color: #00d4ff;
+        box-shadow: 0 0 15px rgba(0,212,255,0.4);
+        transform: translateY(-2px);
+    }
+    
+    .video-list-item.active {
+        border-color: #00ff00;
+        box-shadow: 0 0 20px rgba(0,255,0,0.5);
+    }
+    
+    .video-list-item-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+    
+    .video-list-item-title {
+        color: #fff;
+        font-weight: 600;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .video-list-item-status {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #666;
+    }
+    
+    .video-list-item-status.playing {
+        background: #00ff00;
+        animation: pulse 2s infinite;
+    }
+    
+    .video-list-item-location {
+        color: #aaa;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    
+    .video-list-item-actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+    }
+    
+    .video-list-item-btn {
+        flex: 1;
+        padding: 6px 12px;
+        background: #0f3460;
+        border: 1px solid #00d4ff;
+        color: #00d4ff;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .video-list-item-btn:hover {
+        background: #00d4ff;
+        color: #000;
+    }
+    
+    .video-list-item-btn.active {
+        background: #00ff00;
+        border-color: #00ff00;
+        color: #000;
+    }
+
+    .video-status-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.8);
+        padding: 6px 12px;
+        border-radius: 6px;
+        color: #00ff00;
+        font-size: 11px;
+        font-weight: 600;
+        z-index: 10;
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}{% endblock %}
+
+{% block content %}
 <!-- ============ HERO ============ -->
-<div class="hero-header text-center py-4 mb-4">
-    <h1 class="main-title">HỆ THỐNG NHẬN DIỆN BIỂN SỐ & TÍNH TOÁN TỐC ĐỘ</h1>
-    <p class="subtitle">Ứng dụng Trí tuệ Nhân tạo trong giám sát giao thông thời gian thực</p>
+<div class="hero-header text-center">
+    <h1 class="main-title">
+        <i class="fas fa-road" style="margin-right: 10px;"></i> HỆ THỐNG NHẬN DIỆN BIỂN SỐ & TÍNH TOÁN TỐC ĐỘ
+    </h1>
+    <p class="subtitle">
+        <i class="fas fa-microchip" style="margin-right: 8px;"></i> Ứng dụng Trí tuệ Nhân tạo trong giám sát giao thông thời gian thực
+    </p>
 </div>
-
-<div class="container mt-4">
 
 <!-- ================= DASHBOARD ================= -->
-<div class="row justify-content-center dashboard-row text-center">
-
+<div class="row justify-content-center dashboard-row text-center mb-4">
     <div class="col-md-3">
         <div class="dash-card">
             <div class="dash-icon bg-red">
                 <i class="fas fa-exclamation-triangle"></i>
             </div>
             <div class="dash-info">
-                <h6>Tổng vi phạm hôm nay</h6>
-                <h2 id="total">{{ total }}</h2>
+                <h6><i class="fas fa-exclamation-triangle"></i> Tổng vi phạm hôm nay</h6>
+                <h2 id="total">{{ total or 0 }}</h2>
             </div>
         </div>
     </div>
@@ -61,8 +606,8 @@
                 <i class="fas fa-car"></i>
             </div>
             <div class="dash-info">
-                <h6>Số xe đã quét</h6>
-                <h2 id="vehicles">{{ vehicles }}</h2>
+                <h6><i class="fas fa-car"></i> Số xe đã quét</h6>
+                <h2 id="vehicles">{{ vehicles or 0 }}</h2>
             </div>
         </div>
     </div>
@@ -73,134 +618,1086 @@
                 <i class="fas fa-tachometer-alt"></i>
             </div>
             <div class="dash-info">
-                <h6>Tốc độ trung bình</h6>
-                <h2 id="avg_speed">{{ avg_speed }} km/h</h2>
+                <h6><i class="fas fa-tachometer-alt"></i> Tốc độ trung bình</h6>
+                <h2 id="avg_speed">{{ avg_speed or 0 }} km/h</h2>
             </div>
         </div>
     </div>
-
 </div>
 
-
-<!-- ================= CAMERA ================= -->
-<div class="card mt-4">
+<!-- ================= VIDEO MONITORING SYSTEM ================= -->
+<div class="card mt-4 monitoring-card">
     <div class="card-body">
-        <ul class="nav nav-tabs">
-    <li class="nav-item">
-        <a class="nav-link active" data-toggle="tab" href="#live">Live Camera</a>
-    </li>
-
-    <li class="nav-item">
-        <a class="nav-link" data-toggle="tab" href="#upload">Upload Video</a>
-    </li>
-
-    <li class="nav-item">
-        <a id="stopVideoBtn" class="nav-link text-danger font-weight-bold" style="cursor:pointer;">
-            Dừng Video
-        </a>
-    </li>
-</ul>
-
-
-        <div class="tab-content mt-3">
-
-            <!-- LIVE CAMERA -->
-            <div class="tab-pane fade show active" id="live">
-                <div class="row">
-                    <div class="col-md-8">
-                        <img id="cameraFeed" src="/video_feed" class="img-fluid rounded">
-                    </div>
-                    <div class="col-md-4">
-                        <button id="startCamera" class="btn btn-primary btn-block">Mở Camera</button>
-                        <button id="stopCamera" class="btn btn-secondary btn-block mt-2">Dừng Camera</button>
-                    </div>
-                </div>
+        <div class="monitoring-header">
+            <h4 class="monitoring-title">
+                <i class="fas fa-video"></i> HỆ THỐNG GIÁM SÁT GIAO THÔNG
+            </h4>
+            <div class="status-indicator">
+                <span class="status-dot active"></span>
+                <span class="status-text">Đang hoạt động</span>
             </div>
-
-            <!-- UPLOAD VIDEO -->
-            <div class="tab-pane fade" id="upload">
-
-                <form id="uploadForm" enctype="multipart/form-data">
-                    <input type="file" id="videoInput" name="video" required
-                           class="form-control">
-                    <button class="btn btn-success mt-2">Tải video</button>
-                </form>
-
-                <img id="liveFrame" src="" width="800" class="mt-3 rounded">
-            </div>
-
         </div>
 
+        <!-- TỐI ƯU: Danh sách video demo - chỉ load khi click -->
+        <div class="video-list-wrapper" id="videoListWrapper" style="display: block;">
+            <div class="video-list-header mb-3">
+                <h5 class="text-white">
+                    <i class="fas fa-list"></i> Danh sách Camera Demo (6 camera)
+                </h5>
+                <p class="text-muted small">Nhấn vào camera để xem video. Chỉ load video khi cần để tối ưu hiệu suất.</p>
+            </div>
+            <div class="video-list-container" id="videoListContainer">
+                <!-- Video list items will be dynamically inserted here -->
+            </div>
+        </div>
+        
+        <!-- Video player area - chỉ hiển thị khi chọn video -->
+        <div class="video-grid-wrapper" id="videoGridWrapper" style="display: none;">
+            <div class="video-grid" id="videoGrid">
+                <!-- Selected video will be displayed here -->
+            </div>
+        </div>
+        
+        <div class="system-info-bar">
+            <div class="info-item">
+                <span class="info-label">Thời gian hệ thống:</span>
+                <span class="info-value" id="currentTime">--:--:--</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Tổng số camera:</span>
+                <span class="info-value">6</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Trạng thái:</span>
+                <span class="info-value status-active">Tất cả đang hoạt động</span>
+            </div>
+        </div>
+
+        <div class="video-controls">
+            <div class="control-group">
+                <button id="playAllBtn" class="btn btn-primary">
+                    <i class="fas fa-play"></i> Phát tất cả
+                </button>
+                <button id="pauseAllBtn" class="btn btn-secondary">
+                    <i class="fas fa-pause"></i> Tạm dừng tất cả
+                </button>
+                <button id="uploadVideoBtn" class="btn btn-success">
+                    <i class="fas fa-upload"></i> Upload Video
+                </button>
+                <button id="stopVideoUploadBtn" class="btn btn-danger" style="display: none;">
+                    <i class="fas fa-stop-circle"></i> Dừng Video Upload
+                </button>
+            </div>
+            <div class="upload-section" id="uploadSection" style="display: none;">
+                <form id="uploadForm" enctype="multipart/form-data" class="upload-form">
+                    <div class="form-group">
+                        <input type="file" id="videoInput" name="video" accept="video/*" required class="form-control">
+                    </div>
+                    <button type="submit" class="btn btn-success btn-sm">
+                        <i class="fas fa-check"></i> Xác nhận upload
+                    </button>
+                    <button type="button" id="cancelUploadBtn" class="btn btn-secondary btn-sm">
+                        <i class="fas fa-times"></i> Hủy
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 
-<div class="card p-4 shadow-sm mb-4">
-    <h5 class="mb-3 font-weight-bold">Bộ lọc tìm kiếm</h5>
-
-    <form method="GET" action="/history">
-        <div class="form-row">
-
-            <div class="form-group col-md-3">
-    <label>Biển số</label>
-    <input type="text" name="plate" id="plateInput" class="form-control" placeholder="VD: 29H95559" autocomplete="off">
-    <div id="suggestions" class="autocomplete-box"></div>
+<div id="alert-box"
+     class="d-none"
+     style="background: #ffdddd;
+            border: 1px solid red;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-weight: bold;">
 </div>
-
-
-            <div class="form-group col-md-3">
-                <label>Từ ngày</label>
-                <input type="date" name="from_date" class="form-control">
-            </div>
-
-            <div class="form-group col-md-3">
-                <label>Đến ngày</label>
-                <input type="date" name="to_date" class="form-control">
-            </div>
-
-            <div class="form-group col-md-3">
-                <label>Mức vượt tốc độ</label>
-                <select name="speed_over" class="form-control">
-                    <option value="">-- Tất cả --</option>
-                    <option value="40">Vượt quá 40 km/h</option>
-                    <option value="60">Vượt quá 60 km/h</option>
-                </select>
-            </div>
-
-        </div>
-
-        <button class="btn btn-primary btn-block mt-2">Lọc dữ liệu</button>
-    </form>
-</div>
-
 
 <!-- =========== HISTORY TABLE =========== -->
 <div class="card mt-4 mb-5">
     <div class="card-body">
-        <h3>Lịch sử vi phạm</h3>
-
-        <div class="history-wrapper">
-            <table class="table table-sm table-bordered mt-3">
-                <thead>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3 class="mb-0">
+                <i class="fas fa-history"></i> Lịch sử vi phạm
+            </h3>
+            <span class="badge badge-info" id="history-count">Đang tải...</span>
+        </div>
+        <div class="history-wrapper" style="overflow-x: auto;">
+            <table class="table table-sm table-bordered table-hover mt-3" style="min-width: 100%;">
+                <thead class="thead-light">
                 <tr>
-                    <th>Biển số</th>
-                    <th>Tên chủ xe</th>
-                    <th>Địa chỉ</th>
-                    <th>SĐT</th>
-                    <th>Tốc độ Km/h</th>
-                    <th>Giới hạn Km/h</th>
-                    <th>Thời gian</th>
-                    <th>Ảnh</th>
+                    <th><i class="fas fa-car"></i> Biển số</th>
+                    <th><i class="fas fa-truck"></i> Loại xe</th>
+                    <th><i class="fas fa-user"></i> Tên chủ xe</th>
+                    <th><i class="fas fa-map-marker-alt"></i> Địa chỉ</th>
+                    <th><i class="fas fa-phone"></i> SĐT</th>
+                    <th><i class="fas fa-tachometer-alt"></i> Tốc độ</th>
+                    <th><i class="fas fa-ban"></i> Giới hạn</th>
+                    <th><i class="fas fa-exclamation-triangle"></i> Vượt quá</th>
+                    <th><i class="fas fa-clock"></i> Thời gian</th>
+                    <th><i class="fas fa-image"></i> Ảnh biển số</th>
+                    <th><i class="fas fa-camera"></i> Ảnh vi phạm</th>
                 </tr>
                 </thead>
-                <tbody id="history-table"></tbody>
+                <tbody id="history-table">
+                    <tr>
+                    <td colspan="10" class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin"></i> Đang tải dữ liệu...
+                    </td>
+                    </tr>
+                </tbody>
             </table>
         </div>
-
     </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
+<!-- Load jQuery trước, không defer để đảm bảo sẵn sàng khi dùng -->
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/static/js/main.js"></script>
-
-</body>
-</html>
+<script>
+    // TỐI ƯU: Video list system - chỉ load khi click
+    const videos = [
+        { path: '/video_demo/1.mp4', name: 'Camera 1' },
+        { path: '/video_demo/2.mp4', name: 'Camera 2' },
+        { path: '/video_demo/3.mp4', name: 'Camera 3' },
+        { path: '/video_demo/4.mp4', name: 'Camera 4' },
+        { path: '/video_demo/5.mp4', name: 'Camera 5' },
+        { path: '/video_demo/6.mp4', name: 'Camera 6' }
+    ];
+    
+    let videoPlayers = [];
+    let isAllPlaying = false;
+    let currentPlayingVideo = null; // Video đang được phát
+    
+    // TỐI ƯU: Khởi tạo danh sách video (KHÔNG load video)
+    function initVideoList() {
+        const videoListContainer = document.getElementById('videoListContainer');
+        if (!videoListContainer) return;
+        
+        videoListContainer.innerHTML = '';
+        
+        videos.forEach((video, index) => {
+            // Tạo list item
+            const listItem = document.createElement('div');
+            listItem.className = 'video-list-item';
+            listItem.id = `video-list-item-${index}`;
+            listItem.dataset.videoIndex = index;
+            listItem.dataset.videoPath = video.path;
+            
+            // Load saved location
+            const savedLocation = localStorage.getItem(`camera_${index + 1}_location`) || '';
+            
+            listItem.innerHTML = `
+                <div class="video-list-item-header">
+                    <div class="video-list-item-title">
+                        <i class="fas fa-video"></i> ${video.name}
+                    </div>
+                    <div class="video-list-item-status" id="status-${index}"></div>
+                </div>
+                <div class="video-list-item-location">
+                    <i class="fas fa-map-marker-alt"></i> 
+                    <span id="location-text-${index}">${savedLocation || 'Chưa đặt tên đường'}</span>
+                </div>
+                <div class="video-list-item-actions">
+                    <button class="video-list-item-btn" onclick="loadAndPlayVideo(${index})">
+                        <i class="fas fa-play"></i> Xem video
+                    </button>
+                    <button class="video-list-item-btn" onclick="editLocation(${index + 1}, document.getElementById('location-text-${index}'))">
+                        <i class="fas fa-edit"></i> Sửa địa điểm
+                    </button>
+                </div>
+            `;
+            
+            videoListContainer.appendChild(listItem);
+        });
+        
+        console.log('[VIDEO LIST] ✅ Đã khởi tạo danh sách video (không load video)');
+    }
+    
+    // TỐI ƯU: Load và phát video khi user click
+    function loadAndPlayVideo(index) {
+        const video = videos[index];
+        if (!video) return;
+        
+        // Dừng video cũ nếu có
+        if (currentPlayingVideo !== null && currentPlayingVideo !== index) {
+            stopVideo(currentPlayingVideo);
+        }
+        
+        // Nếu đang phát video này, dừng lại
+        if (currentPlayingVideo === index) {
+            stopVideo(index);
+            return;
+        }
+        
+        // Hiển thị video grid
+        const videoGridWrapper = document.getElementById('videoGridWrapper');
+        const videoListWrapper = document.getElementById('videoListWrapper');
+        if (videoGridWrapper) videoGridWrapper.style.display = 'block';
+        if (videoListWrapper) videoListWrapper.style.display = 'none';
+        
+        // Tạo video player
+        const videoGrid = document.getElementById('videoGrid');
+        if (!videoGrid) return;
+        
+        videoGrid.innerHTML = '';
+        videoPlayers = [];
+        
+        // Tạo video element
+        const videoItem = document.createElement('div');
+        videoItem.className = 'video-item active';
+        videoItem.id = `video-item-${index}`;
+        
+        const videoWrapper = document.createElement('div');
+        videoWrapper.className = 'video-item-wrapper';
+        
+        const videoElement = document.createElement('video');
+        videoElement.className = 'monitoring-video';
+        videoElement.src = video.path;
+        videoElement.autoplay = true;
+        videoElement.muted = true;
+        videoElement.loop = true;
+        videoElement.playsInline = true;
+        videoElement.id = `video-${index}`;
+        
+        // Error handling
+        videoElement.addEventListener('error', function(e) {
+            console.error(`[VIDEO ERROR] ${video.name}:`, e);
+            this.style.backgroundColor = '#000';
+            this.style.display = 'flex';
+            this.style.alignItems = 'center';
+            this.style.justifyContent = 'center';
+            this.innerHTML = `<span style="color: #fff; font-size: 12px;">Lỗi tải video</span>`;
+        });
+        
+        // Create overlay và label
+        const overlay = document.createElement('div');
+        overlay.className = 'video-overlay';
+        
+        const label = document.createElement('div');
+        label.className = 'video-label';
+        label.textContent = video.name;
+        
+        const locationDiv = document.createElement('div');
+        locationDiv.className = 'video-location';
+        locationDiv.id = `location-${index}`;
+        const savedLocation = localStorage.getItem(`camera_${index + 1}_location`) || '';
+        if (savedLocation) {
+            locationDiv.textContent = `📍 ${savedLocation}`;
+            locationDiv.setAttribute('data-location', savedLocation);
+        } else {
+            locationDiv.textContent = '📍 Nhấn để nhập tên đường';
+            locationDiv.setAttribute('data-location', '');
+        }
+        locationDiv.addEventListener('click', function() {
+            editLocation(index + 1, this);
+        });
+        
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-location-btn';
+        editBtn.innerHTML = '<i class="fas fa-edit"></i>';
+        editBtn.title = 'Sửa thông tin đường';
+        editBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            editLocation(index + 1, locationDiv);
+        });
+        
+        // Assemble
+        videoWrapper.appendChild(videoElement);
+        videoWrapper.appendChild(overlay);
+        videoWrapper.appendChild(label);
+        videoWrapper.appendChild(locationDiv);
+        videoWrapper.appendChild(editBtn);
+        videoItem.appendChild(videoWrapper);
+        videoGrid.appendChild(videoItem);
+        
+        videoPlayers.push(videoElement);
+        currentPlayingVideo = index;
+        
+        // Cập nhật status
+        updateVideoStatus(index, true);
+        
+        // Thêm nút quay lại danh sách
+        const backBtn = document.createElement('button');
+        backBtn.className = 'btn btn-secondary mt-3';
+        backBtn.innerHTML = '<i class="fas fa-arrow-left"></i> Quay lại danh sách';
+        backBtn.onclick = function() {
+            stopVideo(index);
+            const videoGridWrapper = document.getElementById('videoGridWrapper');
+            const videoListWrapper = document.getElementById('videoListWrapper');
+            if (videoGridWrapper) videoGridWrapper.style.display = 'none';
+            if (videoListWrapper) videoListWrapper.style.display = 'block';
+        };
+        videoGrid.appendChild(backBtn);
+        
+        console.log(`[VIDEO] ✅ Đã load video: ${video.name}`);
+    }
+    
+    // Dừng video
+    function stopVideo(index) {
+        if (videoPlayers.length > 0) {
+            videoPlayers.forEach(video => {
+                video.pause();
+                video.currentTime = 0;
+            });
+            videoPlayers = [];
+        }
+        currentPlayingVideo = null;
+        updateVideoStatus(index, false);
+    }
+    
+    // Cập nhật trạng thái video trong list
+    function updateVideoStatus(index, isPlaying) {
+        const statusEl = document.getElementById(`status-${index}`);
+        if (statusEl) {
+            if (isPlaying) {
+                statusEl.classList.add('playing');
+            } else {
+                statusEl.classList.remove('playing');
+            }
+        }
+        
+        // Cập nhật button
+        const listItem = document.getElementById(`video-list-item-${index}`);
+        if (listItem) {
+            const btn = listItem.querySelector('.video-list-item-btn');
+            if (btn) {
+                if (isPlaying) {
+                    btn.innerHTML = '<i class="fas fa-stop"></i> Dừng video';
+                    btn.classList.add('active');
+                } else {
+                    btn.innerHTML = '<i class="fas fa-play"></i> Xem video';
+                    btn.classList.remove('active');
+                }
+            }
+        }
+    }
+    
+    // Initialize video list on page load
+    function initVideoPlayers() {
+        // TỐI ƯU: Khởi tạo danh sách thay vì load tất cả video
+        initVideoList();
+        
+        updateCurrentTime();
+        setInterval(updateCurrentTime, 1000);
+    }
+    
+    // Update current time display (Vietnam timezone UTC+7)
+    function updateCurrentTime() {
+        const now = new Date();
+        // Convert to Vietnam timezone (UTC+7)
+        const vietnamTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+        const timeString = vietnamTime.toLocaleTimeString('vi-VN', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            timeZone: 'Asia/Ho_Chi_Minh'
+        });
+        const dateString = vietnamTime.toLocaleDateString('vi-VN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            timeZone: 'Asia/Ho_Chi_Minh'
+        });
+        document.getElementById('currentTime').textContent = `${dateString} ${timeString}`;
+    }
+    
+    // Play all videos (legacy - giữ lại cho tương thích)
+    function playAllVideos() {
+        if (videoPlayers.length > 0) {
+            videoPlayers.forEach(video => {
+                video.play();
+            });
+            isAllPlaying = true;
+            const playAllBtn = document.getElementById('playAllBtn');
+            if (playAllBtn) playAllBtn.innerHTML = '<i class="fas fa-pause"></i> Tạm dừng tất cả';
+        }
+    }
+    
+    // Pause all videos (legacy - giữ lại cho tương thích)
+    function pauseAllVideos() {
+        if (videoPlayers.length > 0) {
+            videoPlayers.forEach(video => {
+                video.pause();
+            });
+            isAllPlaying = false;
+            const playAllBtn = document.getElementById('playAllBtn');
+            if (playAllBtn) playAllBtn.innerHTML = '<i class="fas fa-play"></i> Phát tất cả';
+        }
+    }
+    
+    // Toggle play/pause all (legacy - giữ lại cho tương thích)
+    function togglePlayPauseAll() {
+        if (isAllPlaying) {
+            pauseAllVideos();
+        } else {
+            playAllVideos();
+        }
+    }
+    
+    // Upload video handler
+    function setupUploadHandler() {
+        const uploadBtn = document.getElementById('uploadVideoBtn');
+        const uploadSection = document.getElementById('uploadSection');
+        const cancelBtn = document.getElementById('cancelUploadBtn');
+        const uploadForm = document.getElementById('uploadForm');
+        
+        // Kiểm tra các element có tồn tại không
+        if (!uploadBtn || !uploadSection || !cancelBtn || !uploadForm) {
+            console.error('[UPLOAD] ❌ Missing required elements:', {
+                uploadBtn: !!uploadBtn,
+                uploadSection: !!uploadSection,
+                cancelBtn: !!cancelBtn,
+                uploadForm: !!uploadForm
+            });
+            return;
+        }
+        
+        console.log('[UPLOAD] ✅ Setting up upload handler');
+        
+        // Show upload section
+        uploadBtn.addEventListener('click', function() {
+            const isHidden = uploadSection.style.display === 'none' || uploadSection.style.display === '';
+            uploadSection.style.display = isHidden ? 'block' : 'none';
+            console.log('[UPLOAD] Upload section toggled:', uploadSection.style.display);
+        });
+        
+        // Hide upload section
+        cancelBtn.addEventListener('click', function() {
+            uploadSection.style.display = 'none';
+            uploadForm.reset();
+            console.log('[UPLOAD] Upload cancelled');
+        });
+        
+        // Handle form submission với progress bar
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            console.log('[UPLOAD] Form submitted');
+            
+            const fileInput = document.getElementById('videoInput');
+            if (!fileInput) {
+                console.error('[UPLOAD] ❌ videoInput not found');
+                alert('Lỗi: Không tìm thấy input file!');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Chưa chọn file video!');
+                return;
+            }
+            
+            console.log('[UPLOAD] 📤 Uploading file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+            
+            const formData = new FormData();
+            formData.append('video', file);
+            
+            // Tạo progress bar
+            let progressHTML = `
+                <div class="upload-progress-container" style="margin-top: 15px; display: none;">
+                    <div class="progress" style="height: 25px; border-radius: 12px; background: #e9ecef;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                             role="progressbar" 
+                             style="width: 0%; line-height: 25px; font-weight: 600; color: white;"
+                             id="uploadProgressBar">0%</div>
+                    </div>
+                    <small class="text-muted mt-2 d-block" id="uploadStatus">Đang tải lên...</small>
+                </div>
+            `;
+            
+            // Thêm progress bar vào form nếu chưa có
+            let progressContainer = uploadForm.querySelector('.upload-progress-container');
+            if (!progressContainer) {
+                uploadForm.insertAdjacentHTML('beforeend', progressHTML);
+                progressContainer = uploadForm.querySelector('.upload-progress-container');
+            }
+            progressContainer.style.display = 'block';
+            
+            // Show loading
+            const submitBtn = uploadForm.querySelector('button[type="submit"]');
+            const originalBtnText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang tải lên...';
+            
+            const progressBar = document.getElementById('uploadProgressBar');
+            const uploadStatus = document.getElementById('uploadStatus');
+            
+            // TỐI ƯU: Upload với progress tracking
+            const xhr = new XMLHttpRequest();
+            
+            // Track upload progress
+            xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) {
+                    const percentComplete = (e.loaded / e.total) * 100;
+                    progressBar.style.width = percentComplete + '%';
+                    progressBar.textContent = Math.round(percentComplete) + '%';
+                    uploadStatus.textContent = `Đang tải lên: ${Math.round(percentComplete)}% (${(e.loaded / 1024 / 1024).toFixed(2)} MB / ${(e.total / 1024 / 1024).toFixed(2)} MB)`;
+                }
+            });
+            
+            xhr.addEventListener('load', function() {
+                console.log('[UPLOAD] Response received. Status:', xhr.status);
+                if (xhr.status === 200) {
+                    try {
+                        const res = JSON.parse(xhr.responseText);
+                        console.log('[UPLOAD] Response:', res);
+                        if (res.status === 'ok') {
+                            progressBar.style.width = '100%';
+                            progressBar.textContent = '100%';
+                            progressBar.classList.remove('bg-success');
+                            progressBar.classList.add('bg-info');
+                            uploadStatus.textContent = '✅ Upload thành công! Đang xử lý video...';
+                            
+                            // Ẩn upload section và reset form
+                            uploadSection.style.display = 'none';
+                            uploadForm.reset();
+                            progressContainer.style.display = 'none';
+                            
+                            // Hiển thị nút dừng video upload
+                            document.getElementById('stopVideoUploadBtn').style.display = 'inline-block';
+                            
+                            // TỐI ƯU: Đợi video processing khởi động (ít nhất 2 giây) trước khi thêm player
+                            // Và thêm video player ngay để stream có thể bắt đầu load
+                            addUploadedVideoPlayer();
+                            
+                            // Thông báo thành công
+                            showNotification('✅ Upload video thành công! Video đang được xử lý với detection và tracking...', 'success');
+                        } else {
+                            uploadStatus.textContent = '❌ Upload thất bại: ' + (res.msg || 'Lỗi không xác định');
+                            progressBar.classList.remove('bg-success');
+                            progressBar.classList.add('bg-danger');
+                            showNotification('❌ Upload video thất bại!', 'error');
+                        }
+                    } catch (e) {
+                        uploadStatus.textContent = '❌ Lỗi xử lý phản hồi';
+                        progressBar.classList.remove('bg-success');
+                        progressBar.classList.add('bg-danger');
+                        showNotification('❌ Có lỗi xảy ra khi upload video!', 'error');
+                    }
+                } else {
+                    uploadStatus.textContent = '❌ Lỗi kết nối';
+                    progressBar.classList.remove('bg-success');
+                    progressBar.classList.add('bg-danger');
+                    showNotification('❌ Có lỗi xảy ra khi upload video!', 'error');
+                }
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+            });
+            
+            xhr.addEventListener('error', function() {
+                console.error('[UPLOAD] ❌ Network error');
+                uploadStatus.textContent = '❌ Lỗi kết nối';
+                progressBar.classList.remove('bg-success');
+                progressBar.classList.add('bg-danger');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+                showNotification('❌ Có lỗi xảy ra khi upload video! Vui lòng kiểm tra kết nối mạng.', 'error');
+            });
+            
+            xhr.addEventListener('abort', function() {
+                console.warn('[UPLOAD] ⚠️ Upload aborted');
+                uploadStatus.textContent = '❌ Upload bị hủy';
+                progressBar.classList.remove('bg-success');
+                progressBar.classList.add('bg-warning');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+            });
+            
+            console.log('[UPLOAD] Sending request to /upload_video');
+            xhr.open('POST', '/upload_video');
+            xhr.send(formData);
+        });
+    }
+    
+    // Thêm video player cho video đã upload (có detection/tracking)
+    function addUploadedVideoPlayer() {
+        const videoGrid = document.getElementById('videoGrid');
+        const videoGridWrapper = document.getElementById('videoGridWrapper');
+        const videoListWrapper = document.getElementById('videoListWrapper');
+        
+        // TỐI ƯU: Ẩn video list và hiển thị video grid khi upload video
+        if (videoListWrapper) {
+            videoListWrapper.style.display = 'none';
+        }
+        if (videoGridWrapper) {
+            videoGridWrapper.style.display = 'block';
+        }
+        
+        // TỐI ƯU: Dừng và ẩn tất cả video demo khi có video upload để tập trung tài nguyên
+        const demoVideos = document.querySelectorAll('.video-item:not(.uploaded-video)');
+        demoVideos.forEach(video => {
+            // Pause video element nếu có
+            const videoElement = video.querySelector('video');
+            if (videoElement) {
+                videoElement.pause();
+                videoElement.currentTime = 0; // Reset về đầu
+            }
+            video.style.display = 'none';
+        });
+        
+        // Dừng video đang phát từ list nếu có
+        if (currentPlayingVideo !== null) {
+            stopVideo(currentPlayingVideo);
+        }
+        
+        // Cập nhật trạng thái play/pause
+        isAllPlaying = false;
+        const playAllBtn = document.getElementById('playAllBtn');
+        if (playAllBtn) {
+            playAllBtn.innerHTML = '<i class="fas fa-play"></i> Phát tất cả';
+        }
+        console.log('[VIDEO UPLOAD] ✅ Đã ẩn video demo và hiển thị video upload');
+        
+        // Kiểm tra xem đã có video upload chưa
+        const existingUploadVideo = document.getElementById('uploaded-video-item');
+        if (existingUploadVideo) {
+            existingUploadVideo.remove();
+        }
+        
+        // Tạo video item mới
+        const videoItem = document.createElement('div');
+        videoItem.className = 'video-item uploaded-video';
+        videoItem.id = 'uploaded-video-item';
+        videoItem.style.display = 'block'; // Đảm bảo hiển thị
+        
+        // Create video wrapper
+        const videoWrapper = document.createElement('div');
+        videoWrapper.className = 'video-item-wrapper';
+        
+        // Tạo img element để hiển thị MJPEG stream từ /video_feed
+        // Stream này đã có detection và tracking từ combined_detector
+        const streamImg = document.createElement('img');
+        streamImg.className = 'monitoring-video stream-video';
+        streamImg.style.objectFit = 'cover';
+        streamImg.style.width = '100%';
+        streamImg.style.height = '100%';
+        streamImg.style.position = 'absolute';
+        streamImg.style.top = '0';
+        streamImg.style.left = '0';
+        streamImg.style.backgroundColor = '#000'; // Background đen khi chưa load
+        streamImg.alt = 'Video với Detection & Tracking';
+        
+        // TỐI ƯU: Đợi video processing khởi động và buffer có frame (tăng delay lên 2 giây)
+        setTimeout(() => {
+            streamImg.src = '/video_feed?' + Date.now(); // Thêm timestamp để tránh cache
+            console.log('[VIDEO UPLOAD] Starting video stream...');
+        }, 2000); // Đợi 2 giây để video processing và buffer sẵn sàng
+        
+        // Tạo overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'video-overlay';
+        
+        // Tạo label với badge đặc biệt
+        const label = document.createElement('div');
+        label.className = 'video-label';
+        label.innerHTML = '<i class="fas fa-upload"></i> Video Upload (Live Detection)';
+        label.style.borderLeftColor = '#00ff00'; // Màu xanh lá để phân biệt
+        
+        // Badge trạng thái
+        const statusBadge = document.createElement('div');
+        statusBadge.className = 'video-status-badge';
+        statusBadge.innerHTML = '<span class="status-dot-small active"></span> Đang xử lý';
+        statusBadge.style.position = 'absolute';
+        statusBadge.style.top = '10px';
+        statusBadge.style.right = '10px';
+        statusBadge.style.background = 'rgba(0,0,0,0.8)';
+        statusBadge.style.padding = '6px 12px';
+        statusBadge.style.borderRadius = '6px';
+        statusBadge.style.color = '#00ff00';
+        statusBadge.style.fontSize = '11px';
+        statusBadge.style.fontWeight = '600';
+        statusBadge.style.zIndex = '10';
+        
+        // Assemble structure
+        videoWrapper.appendChild(streamImg);
+        videoWrapper.appendChild(overlay);
+        videoWrapper.appendChild(label);
+        videoWrapper.appendChild(statusBadge);
+        videoItem.appendChild(videoWrapper);
+        
+        // Thêm vào đầu grid (ưu tiên hiển thị)
+        videoGrid.insertBefore(videoItem, videoGrid.firstChild);
+        
+        // TỐI ƯU: Auto refresh stream với error handling
+        const refreshInterval = setInterval(function() {
+            if (streamImg.src && streamImg.complete) {
+                // Chỉ refresh nếu image đã load xong
+                streamImg.src = '/video_feed?' + Date.now();
+            }
+        }, 5000); // TỐI ƯU: Refresh mỗi 5 giây để giảm tải server
+        
+        // Error handling cho image load - TỐI ƯU: Retry với exponential backoff
+        let retryCount = 0;
+        const maxRetries = 10;
+        streamImg.onerror = function() {
+            retryCount++;
+            if (retryCount <= maxRetries) {
+                console.log(`[VIDEO STREAM] Error loading stream, retrying... (${retryCount}/${maxRetries})`);
+                const delay = Math.min(1000 * retryCount, 5000); // Max 5 giây delay
+                setTimeout(() => {
+                    if (streamImg.src) {
+                        streamImg.src = '/video_feed?' + Date.now();
+                    }
+                }, delay);
+            } else {
+                console.error('[VIDEO STREAM] Failed to load stream after multiple retries');
+                statusBadge.innerHTML = '<span class="status-dot-small" style="background: #ff0000;"></span> Lỗi tải video';
+                statusBadge.style.color = '#ff0000';
+            }
+        };
+        
+        streamImg.onload = function() {
+            console.log('[VIDEO STREAM] Stream loaded successfully');
+            retryCount = 0; // Reset retry count khi load thành công
+            statusBadge.innerHTML = '<span class="status-dot-small active"></span> Đang phát';
+            statusBadge.style.color = '#00ff00';
+        };
+        
+        // Cleanup khi video item bị xóa
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (!document.getElementById('uploaded-video-item')) {
+                    clearInterval(refreshInterval);
+                    observer.disconnect();
+                }
+            });
+        });
+        observer.observe(videoGrid, { childList: true, subtree: true });
+    }
+    
+    // Stop video upload handler
+    function setupStopVideoUploadHandler() {
+        const stopBtn = document.getElementById('stopVideoUploadBtn');
+        
+        stopBtn.addEventListener('click', function() {
+            if (!confirm('Bạn có chắc muốn dừng video upload đang chạy?')) {
+                return;
+            }
+            
+            // Disable button và hiển thị loading
+            stopBtn.disabled = true;
+            const originalBtnText = stopBtn.innerHTML;
+            stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang dừng...';
+            
+            $.ajax({
+                url: '/stop_video_upload',
+                type: 'GET',
+                success: function(res) {
+                    if (res.status === 'ok') {
+                        showNotification('✅ Đã dừng video upload thành công!', 'success');
+                        
+                        // Ẩn nút dừng
+                        stopBtn.style.display = 'none';
+                        
+                        // Xóa video player đã upload
+                        const uploadedVideoItem = document.getElementById('uploaded-video-item');
+                        if (uploadedVideoItem) {
+                            uploadedVideoItem.remove();
+                        }
+                        
+                        // TỐI ƯU: Hiển thị lại video list và ẩn video grid
+                        const videoGridWrapper = document.getElementById('videoGridWrapper');
+                        const videoListWrapper = document.getElementById('videoListWrapper');
+                        if (videoGridWrapper) {
+                            videoGridWrapper.style.display = 'none';
+                        }
+                        if (videoListWrapper) {
+                            videoListWrapper.style.display = 'block';
+                        }
+                        
+                        // TỐI ƯU: Hiển thị lại và resume các video demo
+                        const demoVideos = document.querySelectorAll('.video-item:not(.uploaded-video)');
+                        demoVideos.forEach(video => {
+                            video.style.display = 'block';
+                            // Resume video element nếu có
+                            const videoElement = video.querySelector('video');
+                            if (videoElement) {
+                                videoElement.play().catch(e => {
+                                    console.log('[VIDEO] Video auto-play prevented:', e);
+                                });
+                            }
+                        });
+                        // Cập nhật trạng thái play/pause
+                        isAllPlaying = true;
+                        const playAllBtn = document.getElementById('playAllBtn');
+                        if (playAllBtn) {
+                            playAllBtn.innerHTML = '<i class="fas fa-pause"></i> Tạm dừng tất cả';
+                        }
+                        console.log('[VIDEO UPLOAD] ✅ Đã hiển thị lại video list và ẩn video upload');
+                        
+                        // Reload video players
+                        initVideoPlayers();
+                    } else {
+                        showNotification('❌ Có lỗi xảy ra khi dừng video upload!', 'error');
+                    }
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = originalBtnText;
+                },
+                error: function(xhr, status, error) {
+                    console.error('Stop video upload error:', status, error);
+                    showNotification('❌ Có lỗi xảy ra khi dừng video upload!', 'error');
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = originalBtnText;
+                }
+            });
+        });
+    }
+    
+    // Notification system
+    function showNotification(message, type = 'info') {
+        const alertBox = document.getElementById('alert-box');
+        alertBox.textContent = message;
+        alertBox.className = 'd-block';
+        
+        // Set color based on type
+        if (type === 'success') {
+            alertBox.style.background = '#d4edda';
+            alertBox.style.borderColor = '#28a745';
+            alertBox.style.color = '#155724';
+        } else if (type === 'error') {
+            alertBox.style.background = '#f8d7da';
+            alertBox.style.borderColor = '#dc3545';
+            alertBox.style.color = '#721c24';
+        } else {
+            alertBox.style.background = '#d1ecf1';
+            alertBox.style.borderColor = '#17a2b8';
+            alertBox.style.color = '#0c5460';
+        }
+        
+        // Auto hide after 5 seconds
+        setTimeout(() => {
+            alertBox.className = 'd-none';
+        }, 5000);
+    }
+    
+    // Real-time history updates với SSE
+    function setupRealTimeHistory() {
+        const historyTable = document.getElementById('history-table');
+        
+        // Load initial data
+        function loadHistory() {
+            $.ajax({
+                url: '/violations',
+                type: 'GET',
+                success: function(data) {
+                    if (Array.isArray(data) && data.length > 0) {
+                        renderHistoryTable(data);
+                    }
+                },
+                error: function() {
+                    console.error('Error loading history');
+                }
+            });
+        }
+        
+        // Render history table
+        function renderHistoryTable(violations) {
+            if (!violations || violations.length === 0) {
+                historyTable.innerHTML = `
+                    <tr>
+                        <td colspan="10" class="text-center text-muted">
+                            <i class="fas fa-inbox"></i> Chưa có dữ liệu vi phạm
+                        </td>
+                    </tr>
+                `;
+                document.getElementById('history-count').textContent = '0 vi phạm';
+                return;
+            }
+            
+            historyTable.innerHTML = '';
+            violations.forEach(function(v) {
+                const row = document.createElement('tr');
+                const speedColor = v.speed > v.speed_limit ? '#dc3545' : '#28a745';
+                const vehicleClassBadge = getVehicleClassBadge(v.vehicle_class);
+                // Format time với Vietnam timezone (UTC+7)
+                let timeStr = 'N/A';
+                if (v.time) {
+                    try {
+                        const date = new Date(v.time);
+                        // Convert to Vietnam timezone (UTC+7)
+                        const vietnamTime = new Date(date.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+                        timeStr = vietnamTime.toLocaleString('vi-VN', { 
+                            timeZone: 'Asia/Ho_Chi_Minh',
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                        });
+                    } catch (e) {
+                        timeStr = v.time;
+                    }
+                }
+                
+                // Format giống view_violations.html (bỏ cột Trạng thái và video)
+                row.innerHTML = `
+                    <td><strong>${v.plate || 'N/A'}</strong></td>
+                    <td>${vehicleClassBadge}</td>
+                    <td>${v.owner_name || 'Không rõ'}</td>
+                    <td>${v.address || 'Không rõ'}</td>
+                    <td>${v.phone || 'Không rõ'}</td>
+                    <td><strong style="color: ${speedColor};">${parseFloat(v.speed || 0).toFixed(1)} km/h</strong></td>
+                    <td>${v.speed_limit || 40} km/h</td>
+                    <td><strong style="color: #dc3545;">${(parseFloat(v.speed || 0) - parseFloat(v.speed_limit || 40)).toFixed(1)} km/h</strong></td>
+                    <td>${timeStr}</td>
+                    <td>
+                        ${v.plate_image ? `
+                            <img src="/static/plate_images/${v.plate_image}" 
+                                 class="plate-img" 
+                                 style="max-width: 100px; border-radius: 4px; cursor: pointer;" 
+                                 onclick="window.open(this.src, '_blank')"
+                                 alt="Biển số ${v.plate || ''}"
+                                 onerror="this.onerror=null; this.outerHTML='<span class=\\'text-muted\\'>N/A</span>';">
+                        ` : '<span class="text-muted">N/A</span>'}
+                    </td>
+                    <td>
+                        ${v.image ? `
+                            <img src="/static/uploads/${v.image}" 
+                                 class="history-img" 
+                                 style="max-width: 150px; border-radius: 4px; cursor: pointer;"
+                                 onclick="window.open(this.src, '_blank')"
+                                 alt="Ảnh vi phạm">
+                        ` : '<span class="text-muted">N/A</span>'}
+                    </td>
+                `;
+                historyTable.appendChild(row);
+            });
+            
+            // Update count badge
+            document.getElementById('history-count').textContent = `${violations.length} vi phạm`;
+        }
+        
+        // Helper function for vehicle class badge - giống view_violations.html
+        function getVehicleClassBadge(vehicleClass) {
+            if (vehicleClass === 'car') {
+                return '<span class="badge badge-primary">Ô TÔ</span>';
+            } else if (vehicleClass === 'motorcycle') {
+                return '<span class="badge badge-info">XE GẮN MÁY</span>';
+            } else if (vehicleClass === 'bus') {
+                return '<span class="badge badge-warning">XE BUS</span>';
+            } else if (vehicleClass === 'truck') {
+                return '<span class="badge badge-secondary">XE TẢI</span>';
+            } else {
+                return '<span class="badge badge-light">N/A</span>';
+            }
+        }
+        
+        // Load initial data
+        loadHistory();
+        
+        // TỐI ƯU: Tăng interval từ 3 giây lên 5 giây để giảm tải server
+        setInterval(loadHistory, 5000);
+    }
+    
+    // Event listeners
+    document.getElementById('playAllBtn').addEventListener('click', togglePlayPauseAll);
+    document.getElementById('pauseAllBtn').addEventListener('click', pauseAllVideos);
+    
+    // Function to edit location for camera (cập nhật cho cả video list và video player)
+    function editLocation(cameraNumber, locationElement) {
+        const currentLocation = locationElement.getAttribute('data-location') || '';
+        
+        // Create input field
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'video-location-input';
+        input.value = currentLocation;
+        input.placeholder = 'Nhập tên đường (VD: Đường Nguyễn Văn A, Quận 1)';
+        
+        // Replace location div with input
+        const oldText = locationElement.textContent;
+        locationElement.innerHTML = '';
+        locationElement.appendChild(input);
+        input.focus();
+        input.select();
+        
+        // Save on Enter or blur
+        const saveLocation = function() {
+            const newLocation = input.value.trim();
+            if (newLocation) {
+                locationElement.textContent = `📍 ${newLocation}`;
+                locationElement.setAttribute('data-location', newLocation);
+                // Save to localStorage
+                localStorage.setItem(`camera_${cameraNumber}_location`, newLocation);
+                console.log(`[LOCATION] Camera ${cameraNumber} location saved: ${newLocation}`);
+                
+                // TỐI ƯU: Cập nhật location trong video list nếu có
+                const listLocationText = document.getElementById(`location-text-${cameraNumber - 1}`);
+                if (listLocationText) {
+                    listLocationText.textContent = newLocation;
+                }
+            } else {
+                locationElement.textContent = '📍 Nhấn để nhập tên đường';
+                locationElement.setAttribute('data-location', '');
+                // Remove from localStorage
+                localStorage.removeItem(`camera_${cameraNumber}_location`);
+                
+                // TỐI ƯU: Cập nhật location trong video list nếu có
+                const listLocationText = document.getElementById(`location-text-${cameraNumber - 1}`);
+                if (listLocationText) {
+                    listLocationText.textContent = 'Chưa đặt tên đường';
+                }
+            }
+        };
+        
+        input.addEventListener('blur', saveLocation);
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                saveLocation();
+            }
+            if (e.key === 'Escape') {
+                // Cancel editing
+                const savedLocation = localStorage.getItem(`camera_${cameraNumber}_location`) || '';
+                if (savedLocation) {
+                    locationElement.textContent = `📍 ${savedLocation}`;
+                    locationElement.setAttribute('data-location', savedLocation);
+                } else {
+                    locationElement.textContent = '📍 Nhấn để nhập tên đường';
+                    locationElement.setAttribute('data-location', '');
+                }
+            }
+        });
+    }
+    
+    // Initialize on page load - TỐI ƯU: Defer heavy operations
+    $(document).ready(function() {
+        console.log('[INIT] Page loaded, initializing...');
+        
+        // TỐI ƯU: Load video players ngay
+        initVideoPlayers();
+        
+        // Kiểm tra và setup upload handler ngay
+        function setupUploadHandlers() {
+            try {
+                setupUploadHandler();
+                setupStopVideoUploadHandler();
+                console.log('[INIT] ✅ Upload handlers setup complete');
+            } catch (e) {
+                console.error('[INIT] ❌ Error setting up upload handlers:', e);
+                // Retry sau 1 giây
+                setTimeout(setupUploadHandlers, 1000);
+            }
+        }
+        
+        // TỐI ƯU: Defer các operations nặng
+        setTimeout(setupUploadHandlers, 100);
+        
+        // TỐI ƯU: Defer real-time history để không block initial load
+        setTimeout(() => {
+            setupRealTimeHistory();
+        }, 500);
+        
+        // TỐI ƯU: Auto play videos sau khi page đã load xong
+        setTimeout(() => {
+            playAllVideos();
+        }, 1000);
+    });
+</script>
+{% endblock %}

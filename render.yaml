@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: speed-detection
-    env: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "./start_web.sh"
-    plan: starter
-    autoDeploy: true
