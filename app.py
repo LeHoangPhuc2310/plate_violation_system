@@ -12,16 +12,10 @@ from collections import deque
 import queue
 from datetime import datetime, timezone, timedelta
 
-from combined_detector import CombinedDetector
-from speed_tracker import SpeedTracker
-from detector import PlateDetector
-# Thử import Enhanced Plate Detector (có fallback)
-try:
-    from enhanced_plate_detector import EnhancedPlateDetector
-    ENHANCED_DETECTOR_AVAILABLE = True
-except ImportError:
-    ENHANCED_DETECTOR_AVAILABLE = False
-    print(">>> ⚠️ Enhanced Plate Detector not available - using standard PlateDetector")
+# Lazy import - chỉ import khi cần (tránh load models nặng khi start)
+# from combined_detector import CombinedDetector
+# from speed_tracker import SpeedTracker
+# from detector import PlateDetector
 
 # ======================
 # TIMEZONE CONFIG (Vietnam UTC+7)
@@ -66,8 +60,24 @@ app.config['MYSQL_USER'] = os.getenv('MYSQL_USER', 'root')
 app.config['MYSQL_PASSWORD'] = os.getenv('MYSQL_PASSWORD', '')
 app.config['MYSQL_DB'] = os.getenv('MYSQL_DB', 'plate_violation')
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
+# Thêm timeout để tránh block khi kết nối
+app.config['MYSQL_CONNECT_TIMEOUT'] = 5
 
 mysql = MySQL(app)
+
+# Test database connection (non-blocking)
+def test_db_connection():
+    """Test database connection without blocking startup"""
+    try:
+        with app.app_context():
+            conn = mysql.connection
+            if conn:
+                print("✅ Database connection OK")
+                return True
+    except Exception as e:
+        print(f"⚠️  Database connection warning: {e}")
+        print("⚠️  App will continue but database features may not work")
+    return False
 
 # ======================
 # ROUTES
@@ -96,12 +106,37 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     
-    print(f"Starting Flask server on {host}:{port}")
+    print("=" * 60)
+    print("Starting Plate Violation System")
+    print("=" * 60)
+    print(f"Host: {host}")
+    print(f"Port: {port}")
     print(f"Debug mode: {debug}")
     print(f"Environment: {os.getenv('FLASK_ENV', 'production')}")
+    print("=" * 60)
+    
+    # Test database connection (non-blocking)
+    import threading
+    db_thread = threading.Thread(target=test_db_connection, daemon=True)
+    db_thread.start()
+    
+    print(f"\n🚀 Server starting on http://{host}:{port}")
+    print("Press CTRL+C to quit\n")
     
     try:
-        app.run(host=host, port=port, debug=debug, threaded=True)
+        # Tắt reloader trong production để tránh block
+        use_reloader = debug and os.getenv('FLASK_ENV', 'production') == 'development'
+        app.run(
+            host=host, 
+            port=port, 
+            debug=debug, 
+            threaded=True,
+            use_reloader=use_reloader  # Tắt reloader để tránh block
+        )
+    except KeyboardInterrupt:
+        print("\n\n👋 Server stopped by user")
     except Exception as e:
-        print(f"Error starting server: {e}")
+        print(f"\n❌ Error starting server: {e}")
+        import traceback
+        traceback.print_exc()
         raise
