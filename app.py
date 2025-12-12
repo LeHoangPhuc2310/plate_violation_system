@@ -102,9 +102,17 @@ def health():
 # RUN APPLICATION
 # ======================
 if __name__ == '__main__':
+    # Đọc environment variables
     host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 5000))
-    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    port_str = os.getenv('PORT', '5000')
+    port = int(port_str) if port_str.isdigit() else 5000
+    
+    # Tắt debug mode mặc định để tránh block
+    debug_str = os.getenv('FLASK_DEBUG', 'False').lower()
+    debug = debug_str == 'true' or debug_str == '1'
+    
+    # Force production mode nếu không set
+    flask_env = os.getenv('FLASK_ENV', 'production')
     
     print("=" * 60)
     print("Starting Plate Violation System")
@@ -112,26 +120,34 @@ if __name__ == '__main__':
     print(f"Host: {host}")
     print(f"Port: {port}")
     print(f"Debug mode: {debug}")
-    print(f"Environment: {os.getenv('FLASK_ENV', 'production')}")
+    print(f"Environment: {flask_env}")
+    print(f"PORT env var: {os.getenv('PORT', 'NOT SET')}")
     print("=" * 60)
     
-    # Test database connection (non-blocking)
+    # Test database connection (non-blocking, delayed)
     import threading
-    db_thread = threading.Thread(target=test_db_connection, daemon=True)
+    def delayed_db_test():
+        time.sleep(2)  # Đợi 2 giây sau khi server start
+        test_db_connection()
+    
+    db_thread = threading.Thread(target=delayed_db_test, daemon=True)
     db_thread.start()
     
     print(f"\n🚀 Server starting on http://{host}:{port}")
     print("Press CTRL+C to quit\n")
     
     try:
-        # Tắt reloader trong production để tránh block
-        use_reloader = debug and os.getenv('FLASK_ENV', 'production') == 'development'
+        # TẮT HOÀN TOÀN reloader để tránh block
+        # Chỉ bật reloader nếu explicitly set FLASK_ENV=development VÀ debug=True
+        use_reloader = False  # Tắt mặc định
+        
         app.run(
             host=host, 
             port=port, 
-            debug=debug, 
+            debug=False,  # Force tắt debug để tránh reloader
             threaded=True,
-            use_reloader=use_reloader  # Tắt reloader để tránh block
+            use_reloader=False,  # Tắt reloader
+            use_debugger=False   # Tắt debugger
         )
     except KeyboardInterrupt:
         print("\n\n👋 Server stopped by user")
