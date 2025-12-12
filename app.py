@@ -102,26 +102,25 @@ def health():
 # RUN APPLICATION
 # ======================
 if __name__ == '__main__':
-    # Đọc environment variables
-    host = os.getenv('HOST', '0.0.0.0')
-    port_str = os.getenv('PORT', '5000')
+    # Đọc environment variables TRƯỚC KHI Flask load config
+    # Override bất kỳ config nào từ .env file
+    host = os.environ.get('HOST', '0.0.0.0')
+    port_str = os.environ.get('PORT', '5000')
     port = int(port_str) if port_str.isdigit() else 5000
     
-    # Tắt debug mode mặc định để tránh block
-    debug_str = os.getenv('FLASK_DEBUG', 'False').lower()
-    debug = debug_str == 'true' or debug_str == '1'
-    
-    # Force production mode nếu không set
-    flask_env = os.getenv('FLASK_ENV', 'production')
+    # FORCE tắt debug mode - không cho phép bật từ bất kỳ đâu
+    os.environ['FLASK_DEBUG'] = '0'
+    os.environ['FLASK_ENV'] = 'production'
+    debug = False
     
     print("=" * 60)
     print("Starting Plate Violation System")
     print("=" * 60)
     print(f"Host: {host}")
     print(f"Port: {port}")
-    print(f"Debug mode: {debug}")
-    print(f"Environment: {flask_env}")
-    print(f"PORT env var: {os.getenv('PORT', 'NOT SET')}")
+    print(f"Debug mode: {debug} (FORCED OFF)")
+    print(f"Environment: production (FORCED)")
+    print(f"PORT from env: {os.environ.get('PORT', 'NOT SET')}")
     print("=" * 60)
     
     # Test database connection (non-blocking, delayed)
@@ -137,17 +136,15 @@ if __name__ == '__main__':
     print("Press CTRL+C to quit\n")
     
     try:
-        # TẮT HOÀN TOÀN reloader để tránh block
-        # Chỉ bật reloader nếu explicitly set FLASK_ENV=development VÀ debug=True
-        use_reloader = False  # Tắt mặc định
-        
+        # FORCE tắt tất cả debug features
         app.run(
             host=host, 
             port=port, 
-            debug=False,  # Force tắt debug để tránh reloader
+            debug=False,           # Tắt debug
             threaded=True,
-            use_reloader=False,  # Tắt reloader
-            use_debugger=False   # Tắt debugger
+            use_reloader=False,    # Tắt reloader
+            use_debugger=False,    # Tắt debugger
+            extra_files=None      # Không watch files
         )
     except KeyboardInterrupt:
         print("\n\n👋 Server stopped by user")
