@@ -13,9 +13,7 @@ import queue
 from datetime import datetime, timezone, timedelta
 
 # Lazy import - chỉ import khi cần (tránh load models nặng khi start)
-# from combined_detector import CombinedDetector
-# from speed_tracker import SpeedTracker
-# from detector import PlateDetector
+# Import sẽ được thực hiện trong các routes khi cần
 
 # ======================
 # TIMEZONE CONFIG (Vietnam UTC+7)
@@ -114,6 +112,124 @@ def health():
 def test():
     """Simple test endpoint"""
     return "<h1>Test OK</h1><p>Flask is working!</p>", 200
+
+@app.route('/history')
+def history():
+    """Xem danh sách vi phạm"""
+    try:
+        return render_template('view_violations.html')
+    except Exception as e:
+        print(f"Error rendering view_violations.html: {e}")
+        return f"<h1>Xem vi phạm</h1><p>Error loading template: {e}", 200
+
+@app.route('/admin/vehicles')
+def manage_vehicle():
+    """Quản lý xe"""
+    try:
+        return render_template('admin_vehicle.html')
+    except Exception as e:
+        print(f"Error rendering admin_vehicle.html: {e}")
+        return f"<h1>Quản lý xe</h1><p>Error loading template: {e}", 200
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Đăng nhập"""
+    if request.method == 'POST':
+        # TODO: Implement login logic
+        session['user'] = request.form.get('username', 'admin')
+        session['role'] = 'admin'
+        return redirect(url_for('home'))
+    try:
+        return render_template('login.html')
+    except Exception as e:
+        return f"<h1>Đăng nhập</h1><p>Error: {e}", 200
+
+@app.route('/logout')
+def logout():
+    """Đăng xuất"""
+    session.clear()
+    return redirect(url_for('home'))
+
+@app.route('/edit_owner/<plate>', methods=['GET', 'POST'])
+def edit_owner(plate):
+    """Sửa thông tin chủ xe"""
+    if request.method == 'POST':
+        # TODO: Implement update logic
+        return redirect(url_for('manage_vehicle'))
+    try:
+        # TODO: Get owner data from database
+        return render_template('edit_owner.html', owner={'plate': plate})
+    except Exception as e:
+        return f"<h1>Sửa thông tin</h1><p>Error: {e}", 200
+
+@app.route('/delete/<plate>')
+def delete(plate):
+    """Xóa xe"""
+    # TODO: Implement delete logic
+    return redirect(url_for('manage_vehicle'))
+
+@app.route('/upload_video', methods=['POST'])
+def upload_video():
+    """Upload video để xử lý"""
+    try:
+        if 'video' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No video file'}), 400
+        
+        file = request.files['video']
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No file selected'}), 400
+        
+        # Lưu file
+        filename = f"uploaded_{int(time.time())}.mp4"
+        upload_path = os.path.join('uploads', filename)
+        os.makedirs('uploads', exist_ok=True)
+        file.save(upload_path)
+        
+        # TODO: Start video processing với CombinedDetector
+        # Tạm thời trả về success
+        return jsonify({
+            'status': 'ok',
+            'message': 'Video uploaded successfully',
+            'filename': filename
+        }), 200
+    except Exception as e:
+        print(f"Error uploading video: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/video_feed')
+def video_feed():
+    """Video stream với detection (MJPEG)"""
+    try:
+        # TODO: Implement video stream với CombinedDetector
+        # Tạm thời trả về placeholder
+        def generate():
+            # Placeholder frame (black image)
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "Video feed not implemented yet", (50, 240), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            _, buffer = cv2.imencode('.jpg', frame)
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        
+        return Response(generate(),
+                      mimetype='multipart/x-mixed-replace; boundary=frame')
+    except Exception as e:
+        print(f"Error in video_feed: {e}")
+        return f"Error: {e}", 500
+
+@app.route('/video_demo/<path:filename>')
+def video_demo(filename):
+    """Serve video demo files"""
+    try:
+        return send_from_directory('video_demo', filename)
+    except Exception as e:
+        return f"Error: {e}", 404
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    """Serve static files"""
+    return send_from_directory('static', filename)
 
 # ======================
 # RUN APPLICATION
