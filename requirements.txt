@@ -9,7 +9,7 @@ numpy==1.24.3
 torch==2.1.0
 torchvision==0.16.0
 ultralytics==8.1.0
-fast-alpr==1.0.0
+fast-alpr==0.3.0
 
 # Image Processing (optional - cho enhanced_plate_detector)
 # easyocr==1.7.0  # Uncomment nếu muốn dùng EasyOCR fallback

@@ -1,0 +1,41 @@
+{
+  "region": "ap-southeast-2",
+  "accountId": "YOUR_ACCOUNT_ID",
+  "ecrRepository": "plate_violation",
+  "imageTag": "latest",
+  
+  "ec2": {
+    "instanceType": "t3.medium",
+    "ami": "ami-0c55b159cbfafe1f0",
+    "keyPairName": "your-key-pair-name",
+    "securityGroupName": "plate-violation-sg",
+    "subnetId": "subnet-xxxxxxxxx",
+    "vpcId": "vpc-xxxxxxxxx",
+    "storageSize": 20,
+    "storageType": "gp3"
+  },
+  
+  "rds": {
+    "createNew": true,
+    "instanceIdentifier": "plate-violation-db",
+    "engine": "mysql",
+    "engineVersion": "8.0",
+    "instanceClass": "db.t3.micro",
+    "allocatedStorage": 20,
+    "masterUsername": "admin",
+    "masterPassword": "CHANGE-THIS-PASSWORD",
+    "databaseName": "plate_violation",
+    "publiclyAccessible": true,
+    "vpcId": "vpc-xxxxxxxxx",
+    "subnetGroupName": "plate-violation-db-subnet-group"
+  },
+  
+  "application": {
+    "secretKey": "CHANGE-THIS-SECRET-KEY",
+    "telegramToken": "YOUR-TELEGRAM-BOT-TOKEN",
+    "telegramChatId": "YOUR-TELEGRAM-CHAT-ID",
+    "flaskPort": 5000,
+    "flaskHost": "0.0.0.0"
+  }
+}
+

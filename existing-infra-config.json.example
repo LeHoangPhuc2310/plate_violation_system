@@ -1,0 +1,15 @@
+{
+  "ec2": {
+    "instanceId": "i-xxxxxxxxxxxxxxxxx",
+    "publicIp": "x.x.x.x",
+    "username": "ubuntu"
+  },
+  "rds": {
+    "endpoint": "your-rds-endpoint.rds.amazonaws.com",
+    "port": 3306,
+    "databaseName": "plate_violation",
+    "username": "admin",
+    "password": "your-rds-password"
+  }
+}
+

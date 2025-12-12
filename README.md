@@ -160,3 +160,4 @@ Trường Đại Học Bình Dương - Phân Hiệu Cà Mau
 
 Nếu có vấn đề, vui lòng tạo [Issue](https://github.com/LeHoangPhuc2310/plate_violation_system/issues) trên GitHub.
 
+

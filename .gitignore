@@ -76,3 +76,15 @@ Thumbs.db
 
 # AWS
 .aws/
+aws-config.json
+existing-infra-config.json
+*.pem
+*.ppk
+deploy-to-ec2.sh
+aws-config.json
+existing-infra-config.json
+*.pem
+*.ppk
+
+# Deployment scripts with sensitive info
+deploy-to-ec2.sh
