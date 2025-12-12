@@ -86,17 +86,34 @@ def test_db_connection():
 @app.route('/')
 def index():
     """Trang chủ - Dashboard"""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        print(f"Error rendering index.html: {e}")
+        return f"<h1>Plate Violation System</h1><p>Server is running</p><p>Error loading template: {e}", 200
 
 @app.route('/home')
 def home():
     """Trang home"""
-    return render_template('home.html')
+    try:
+        return render_template('home.html')
+    except Exception as e:
+        print(f"Error rendering home.html: {e}")
+        return f"<h1>Home</h1><p>Error loading template: {e}", 200
 
 @app.route('/health')
 def health():
     """Health check endpoint"""
-    return jsonify({'status': 'ok', 'message': 'Server is running'}), 200
+    return jsonify({
+        'status': 'ok', 
+        'message': 'Server is running',
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+@app.route('/test')
+def test():
+    """Simple test endpoint"""
+    return "<h1>Test OK</h1><p>Flask is working!</p>", 200
 
 # ======================
 # RUN APPLICATION
