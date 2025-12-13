@@ -64,8 +64,9 @@ static/violation_videos/*
 video_demo/*
 !video_demo/.gitkeep
 
-# Model files (nếu quá lớn)
+# Model files (chỉ giữ yolo11n.pt)
 *.pt
+!yolo11n.pt
 *.pth
 models/*
 !models/.gitkeep
