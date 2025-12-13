@@ -1,5 +1,5 @@
 from flask import Flask, Response, render_template, request, jsonify, redirect, session, url_for, send_from_directory, make_response
-from flask_mysqldb import MySQL
+from flask_mysqldb import MySQL  # pyright: ignore[reportMissingImports]
 import cv2
 import numpy as np
 import time
@@ -1633,14 +1633,22 @@ def detection_worker():
     """
     global current_detections, is_video_upload_mode, stream_queue, admin_frame_buffer, violation_frame_buffer, original_frame_buffer, violation_queue, detector, tracker
     
-    # Đợi detector được khởi tạo (lazy load)
-    while detector is None or tracker is None:
-        init_detector()
-        if detector is None or tracker is None:
-            print("[DETECTION WORKER] Waiting for detector initialization...")
-            time.sleep(1)
+    # Khởi tạo detector nếu chưa có
+    init_detector()
+    
+    # Kiểm tra detector đã được khởi tạo thành công chưa
+    if detector is None:
+        print("[ERROR] Detection worker: Detector initialization failed. Retrying in loop...")
     
     while camera_running:
+        # Nếu detector chưa được khởi tạo, thử lại mỗi giây
+        if detector is None:
+            print("[ERROR] Detection worker: Detector is None, retrying initialization...")
+            init_detector()
+            if detector is None:
+                time.sleep(1)
+                continue
+    
         if len(detection_queue) == 0:
             # TỐI ƯU: Khi upload video, giảm sleep time để xử lý nhanh hơn
             if is_video_upload_mode:
@@ -1651,15 +1659,17 @@ def detection_worker():
             continue
         
         try:
-            # Kiểm tra detector đã sẵn sàng chưa
-            if detector is None or tracker is None:
-                time.sleep(0.1)
-                continue
-            
             frame_data = detection_queue.popleft()
             detect_frame = frame_data['frame']
             original_frame = frame_data['original']
             frame_id = frame_data.get('frame_id', frame_data.get('id', 0))
+            
+            # Kiểm tra detector trước khi sử dụng
+            if detector is None:
+                init_detector()
+                if detector is None:
+                    print("[ERROR] Detection worker: Detector is None, skipping frame")
+                    continue
             
             # Detect xe + FastALPR (tối đa 2 biển số mỗi frame)
             # enable_plate_detection=True: Chạy FastALPR tối đa 2 biển số để tránh chậm
@@ -1872,9 +1882,8 @@ def detection_worker():
                 pass
             
             # TỐI ƯU MEMORY: Cleanup old tracks (chỉ giữ tracks đang active)
-            if tracker is not None:
-                active_track_ids = set(det['track_id'] for det in detections)
-                tracker.cleanup_old_tracks(active_track_ids)
+            active_track_ids = set(det['track_id'] for det in detections)
+            tracker.cleanup_old_tracks(active_track_ids)
             
         except Exception as e:
             print(f"[ERROR] Detection worker error: {e}")
@@ -3569,52 +3578,32 @@ def handle_500(e):
 if __name__ == "__main__":
     # Lấy cấu hình từ environment variables hoặc dùng giá trị mặc định
     host = os.getenv('HOST', '0.0.0.0')
-    port_str = os.getenv('PORT', '5000')
-    port = int(port_str) if port_str.isdigit() else 5000
-    
-    # FORCE tắt debug mode trong production để tránh block
-    debug_env = os.getenv('FLASK_DEBUG', 'False').lower()
-    debug = debug_env == 'true' and os.getenv('FLASK_ENV', 'production') == 'development'
-    
-    # Force production mode nếu không phải development
-    if os.getenv('FLASK_ENV', 'production') != 'development':
-        debug = False
-        os.environ['FLASK_DEBUG'] = '0'
-        os.environ['FLASK_ENV'] = 'production'
+    port = int(os.getenv('PORT', 5000))
+    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     
     print("=" * 60)
     print("🚗 PLATE VIOLATION SYSTEM - Starting...")
     print("=" * 60)
     print(f"📍 Server: http://{host}:{port}")
-    print(f"🔧 Debug mode: {debug} (FORCED OFF in production)")
+    print(f"🔧 Debug mode: {debug}")
     print(f"💾 Database: {app.config['MYSQL_HOST']}/{app.config['MYSQL_DB']}")
     print(f"📱 Telegram: {'Configured' if TELEGRAM_TOKEN else 'Not configured'}")
     print(f"🎯 Detection: Frequency={DETECTION_FREQUENCY}, Scale={DETECTION_SCALE}, Device={DEVICE}")
-    print("=" * 60)
     
-    # Khởi động Telegram worker thread (non-blocking)
+    # Khởi động Telegram worker thread
     start_telegram_worker()
     
-    # Khởi tạo detector trong thread riêng (lazy load, không block startup)
-    def init_detector_async():
-        time.sleep(2)  # Đợi 2 giây sau khi server start
-        print(">>> Initializing detectors in background...")
-        init_detector()
-        print(">>> ✅ Detectors initialized!")
-    
-    detector_thread = threading.Thread(target=init_detector_async, daemon=True)
-    detector_thread.start()
-    
-    print("🚀 Server starting on http://{}:{}".format(host, port))
-    print("Press CTRL+C to quit")
     print("=" * 60)
     
-    # Chạy server - TẮT reloader và debugger để tránh block
-    app.run(
-        host=host,
-        port=port,
-        debug=False,  # Force tắt debug
-        threaded=True,
-        use_reloader=False,  # Tắt reloader
-        use_debugger=False  # Tắt debugger
-    )
+    # Test database connection again before starting
+    try:
+        with app.app_context():
+            conn = mysql.connection
+            if conn:
+                print("✅ Database ready")
+            else:
+                print("⚠️  Warning: Database connection may not be ready")
+    except Exception as e:
+        print(f"⚠️  Database warning: {e}")
+    
+    app.run(host=host, port=port, debug=debug, threaded=True)
