@@ -9,7 +9,12 @@
   <h2 class="mb-4"><i class="fas fa-exclamation-triangle"></i> Danh sách vi phạm</h2>
   {% for item in data %}
     <div style="margin-bottom:18px; border:1px solid #ddd; padding:8px;">
-      <img src="{{ item.image }}" width="200"/>
+      {% if item.image %}
+        <img src="/violations/{{ item.image }}" width="200" 
+             onerror="this.onerror=null; this.outerHTML='<span class=\'text-muted\'>Không có ảnh</span>';"/>
+      {% else %}
+        <span class="text-muted">Không có ảnh</span>
+      {% endif %}
 
       <p>
         <strong>{{ item.plate }}</strong> |

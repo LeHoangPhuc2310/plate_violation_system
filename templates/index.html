@@ -674,7 +674,7 @@
         <i class="fas fa-microchip" style="margin-right: 8px;"></i> Ứng dụng Trí tuệ Nhân tạo trong giám sát giao thông thời gian thực
     </p>
     <div class="architecture-badge">
-        <i class="fas fa-bolt"></i> 6-Thread Architecture | YOLO + OC-SORT + FastALPR
+        <i class="fas fa-bolt"></i> MÔ HÌNH | YOLO + OC-SORT + FastALPR
     </div>
 </div>
 
@@ -1555,7 +1555,7 @@
                     <td>${timeStr}</td>
                     <td>
                         ${v.plate_image ? `
-                            <img src="/static/plate_images/${v.plate_image}" 
+                            <img src="/violations/${v.plate_image}" 
                                  class="plate-img" 
                                  style="max-width: 100px; border-radius: 4px; cursor: pointer;" 
                                  onclick="window.open(this.src, '_blank')"
@@ -1565,11 +1565,12 @@
                     </td>
                     <td>
                         ${v.image ? `
-                            <img src="/static/uploads/${v.image}" 
+                            <img src="/violations/${v.image}" 
                                  class="history-img" 
                                  style="max-width: 150px; border-radius: 4px; cursor: pointer;"
                                  onclick="window.open(this.src, '_blank')"
-                                 alt="Ảnh vi phạm">
+                                 alt="Ảnh vi phạm"
+                                 onerror="this.onerror=null; this.outerHTML='<span class=\\'text-muted\\'>N/A</span>';">
                         ` : '<span class="text-muted">N/A</span>'}
                     </td>
                 `;

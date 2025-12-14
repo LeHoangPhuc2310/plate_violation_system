@@ -167,22 +167,24 @@
                 </td>
                 <td>
                     {% if r.plate_image %}
-                        <img src="/static/plate_images/{{ r.plate_image }}" 
+                        <img src="/violations/{{ r.plate_image }}" 
                              class="plate-img" 
                              style="max-width: 100px; border-radius: 4px; cursor: pointer;" 
                              onclick="window.open(this.src, '_blank')"
-                             alt="Biển số {{ r.plate }}">
+                             alt="Biển số {{ r.plate }}"
+                             onerror="this.onerror=null; this.outerHTML='<span class=\'text-muted\'>N/A</span>';">
                     {% else %}
                         <span class="text-muted">N/A</span>
                     {% endif %}
                 </td>
                 <td>
                     {% if r.image %}
-                        <img src="/static/uploads/{{ r.image }}" 
+                        <img src="/violations/{{ r.image }}" 
                              class="history-img" 
                              style="max-width: 150px; border-radius: 4px; cursor: pointer;"
                              onclick="window.open(this.src, '_blank')"
-                             alt="Ảnh vi phạm">
+                             alt="Ảnh vi phạm"
+                             onerror="this.onerror=null; this.outerHTML='<span class=\'text-muted\'>N/A</span>';">
                     {% else %}
                         <span class="text-muted">N/A</span>
                     {% endif %}
@@ -190,8 +192,8 @@
                     {% if r.video %}
                         <br><br>
                         <div class="video-wrapper" style="position: relative; display: inline-block;">
-                            <video class="video-preview" onclick="openVideoModal('/static/violation_videos/{{ r.video }}')" controls>
-                                <source src="/static/violation_videos/{{ r.video }}" type="video/mp4">
+                            <video class="video-preview" onclick="openVideoModal('/violations/{{ r.video }}')" controls>
+                                <source src="/violations/{{ r.video }}" type="video/mp4">
                                 Trình duyệt không hỗ trợ video.
                             </video>
                             <div style="position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px;">
