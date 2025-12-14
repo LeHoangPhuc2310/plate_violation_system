@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # MySQL Database Service
+  mysql:
+    image: mysql:8.0
+    container_name: plate_violation_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: plate_violation
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - plate_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Flask Application Service (CPU version)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    container_name: plate_violation_app
+    restart: always
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./static/uploads:/app/static/uploads
+      - ./static/plate_images:/app/static/plate_images
+      - ./static/violation_videos:/app/static/violation_videos
+      - ./uploads:/app/uploads
+      - ./video_demo:/app/video_demo
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - DB_HOST=mysql
+      - DB_USER=admin
+      - DB_PASSWORD=admin123
+      - DB_NAME=plate_violation
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - plate_network
+
+  # Flask Application Service (GPU version - uncomment if you have NVIDIA GPU)
+  # app-gpu:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: plate_violation_app_gpu
+  #   restart: always
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - ./static/uploads:/app/static/uploads
+  #     - ./static/plate_images:/app/static/plate_images
+  #     - ./static/violation_videos:/app/static/violation_videos
+  #     - ./uploads:/app/uploads
+  #     - ./video_demo:/app/video_demo
+  #   environment:
+  #     - FLASK_ENV=production
+  #     - PYTHONUNBUFFERED=1
+  #     - DB_HOST=mysql
+  #     - DB_USER=admin
+  #     - DB_PASSWORD=admin123
+  #     - DB_NAME=plate_violation
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   networks:
+  #     - plate_network
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  plate_network:
+    driver: bridge
+

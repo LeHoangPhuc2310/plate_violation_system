@@ -1,263 +1,226 @@
+# 🚗 Hệ Thống Nhận Diện Biển Số & Phát Hiện Vi Phạm Tốc Độ
+
 <div align="center">
 
-# 🚗🚦 Hệ Thống Nhận Diện Biển Số & Tính Toán Tốc Độ Vi Phạm
+![Python](https://img.shields.io/badge/Python-3.10-blue.svg)
+![Flask](https://img.shields.io/badge/Flask-3.0.0-green.svg)
+![YOLOv11](https://img.shields.io/badge/YOLOv11-Latest-orange.svg)
+![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-2.3.3-green.svg)](https://flask.palletsprojects.com/)
-[![YOLO](https://img.shields.io/badge/YOLO-v11-orange.svg)](https://github.com/ultralytics/ultralytics)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![GPU](https://img.shields.io/badge/GPU-CUDA%2011.8%2B-red.svg)](https://developer.nvidia.com/cuda-downloads)
+**Hệ thống AI tự động nhận diện biển số xe và phát hiện vi phạm tốc độ sử dụng YOLOv11, OC-SORT Tracking và FastALPR**
 
-> **Hệ thống AI thông minh phát hiện và theo dõi vi phạm tốc độ giao thông sử dụng Deep Learning**
-
-[📖 Tài liệu](#-tài-liệu) • [🚀 Cài đặt](#-cài-đặt-nhanh) • [⚙️ Cấu hình](#-cấu-hình) • [📊 Tính năng](#-tính-năng) • [🏗️ Kiến trúc](#️-kiến-trúc)
-
----
+[Tính năng](#-tính-năng) • [Kiến trúc](#-kiến-trúc-hệ-thống) • [Cài đặt](#-cài-đặt) • [Sử dụng](#-hướng-dẫn-sử-dụng) • [Docker](#-docker-deployment) • [AWS](#-aws-cloud-deployment)
 
 </div>
 
-## 📋 Mục Lục
+---
 
-- [✨ Tính năng](#-tính-năng)
-- [🏗️ Kiến trúc](#️-kiến-trúc)
-- [🚀 Cài đặt nhanh](#-cài-đặt-nhanh)
-- [⚙️ Cấu hình](#-cấu-hình)
-- [📊 Demo](#-demo)
-- [🔧 Sử dụng](#-sử-dụng)
-- [🌐 Deploy](#-deploy)
-- [📖 Tài liệu](#-tài-liệu)
-- [🤝 Đóng góp](#-đóng-góp)
-- [📄 License](#-license)
+## 📋 Mục lục
+
+- [Giới thiệu](#-giới-thiệu)
+- [Tính năng](#-tính-năng)
+- [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
+- [Công nghệ sử dụng](#-công-nghệ-sử-dụng)
+- [Yêu cầu hệ thống](#-yêu-cầu-hệ-thống)
+- [Cài đặt](#-cài-đặt)
+- [Hướng dẫn sử dụng](#-hướng-dẫn-sử-dụng)
+- [Docker Deployment](#-docker-deployment)
+- [AWS Cloud Deployment](#-aws-cloud-deployment)
+- [API Documentation](#-api-documentation)
+- [Screenshots](#-screenshots)
+- [Tác giả](#-tác-giả)
+- [License](#-license)
+
+---
+
+## 🎯 Giới thiệu
+
+Hệ thống **Plate Violation Detection System** là một ứng dụng AI tiên tiến được phát triển để tự động hóa việc phát hiện và xử lý vi phạm giao thông, đặc biệt là vi phạm tốc độ. Hệ thống sử dụng các công nghệ AI/ML tiên tiến nhất hiện nay để đảm bảo độ chính xác cao và hiệu suất xử lý real-time.
+
+### 🎓 Thông tin dự án
+
+- **Sinh viên thực hiện:** Lê Hoàng Phúc
+- **MSSV:** 190501014
+- **Trường:** Đại học Bình Dương - Phân hiệu Cà Mau
+- **Năm:** 2024-2025
 
 ---
 
 ## ✨ Tính năng
 
-<div align="center">
+### 🚀 Tính năng chính
 
-### 🎯 Core Features
+- ✅ **Nhận diện biển số xe tự động** với độ chính xác cao (>90%)
+- ✅ **Phát hiện vi phạm tốc độ** real-time
+- ✅ **Tracking đa đối tượng** (OC-SORT/ByteTrack)
+- ✅ **Tính toán tốc độ chính xác** dựa trên pixel movement
+- ✅ **Lưu trữ bằng chứng** (ảnh xe, ảnh biển số, video vi phạm)
+- ✅ **Gửi thông báo Telegram** tự động
+- ✅ **Quản lý database** MySQL với full CRUD
+- ✅ **Web interface** chuyên nghiệp và responsive
+- ✅ **Hệ thống chống trùng lặp** vi phạm (cooldown 10s)
+- ✅ **Multi-threading** tối ưu (6 threads)
 
-| Tính năng | Mô tả | Status |
-|-----------|-------|--------|
-| 🚗 **Phát hiện xe tự động** | YOLOv11n detect 4 loại xe (ô tô, xe máy, xe tải, xe bus) | ✅ |
-| 📍 **Tracking chính xác** | OC-SORT/ByteTrack với Kalman Filter | ✅ |
-| 🏷️ **Đọc biển số** | Fast-ALPR đọc biển số xe Việt Nam | ✅ |
-| 🚦 **Tính toán tốc độ** | Theo dõi vị trí và tính tốc độ real-time | ✅ |
-| 📱 **Thông báo Telegram** | Tự động gửi ảnh/video vi phạm | ✅ |
-| 📊 **Dashboard Web** | Giao diện quản lý và xem vi phạm | ✅ |
-| 🎥 **Hỗ trợ video** | Camera trực tiếp hoặc upload video | ✅ |
-| ⚡ **Tối ưu GPU** | Tăng tốc với CUDA, FP16, multi-threading | ✅ |
+### 🎨 Tính năng giao diện
 
-</div>
-
-### 🎨 Tính năng nổi bật
-
-- 🚀 **Real-time Processing**: Xử lý video real-time với 5 thread độc lập
-- 🎯 **High Accuracy**: Độ chính xác cao với YOLOv11n và Fast-ALPR
-- ⚡ **GPU Acceleration**: Hỗ trợ CUDA và Apple Silicon (MPS)
-- 🔄 **Multi-threading**: 5 thread độc lập, không block video stream
-- 📱 **Telegram Integration**: Tự động gửi thông báo vi phạm
-- 🌐 **Web Dashboard**: Giao diện web đầy đủ tính năng
-- 🎥 **Video Support**: Camera trực tiếp hoặc upload video file
+- 📊 **Dashboard** real-time với live video stream
+- 📋 **Quản lý vi phạm** với bộ lọc tìm kiếm
+- 👥 **Quản lý chủ xe** (Admin only)
+- 🔐 **Hệ thống đăng nhập** với phân quyền (Admin/Viewer)
+- 📱 **Responsive design** - tương thích mọi thiết bị
+- 🎭 **Dark mode navigation** với hiệu ứng gradient
 
 ---
 
-## 🏗️ Kiến trúc
+## 🏗️ Kiến trúc hệ thống
 
-<div align="center">
-
-### 📊 System Architecture
+### 6-Thread Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     VIDEO SOURCE                            │
-│              (Camera / Video File / Upload)                 │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
+│                    VIDEO UPLOAD (Flask)                      │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  THREAD 1: VIDEO THREAD                                     │
-│  • Đọc video với tốc độ gốc                                │
-│  • Push frame vào detection_queue                          │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
+│  THREAD 1: Video Thread                                      │
+│  - Đọc frame từ video                                        │
+│  - Push vào detection_queue                                  │
+└────────────────────────┬────────────────────────────────────┘
+                         │ detection_queue
+                         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  THREAD 2: DETECTION WORKER                                 │
-│  • YOLOv11n: Detect xe                                      │
-│  • OC-SORT: Tracking với Kalman Filter                     │
-│  • SpeedTracker: Tính tốc độ                               │
-│  • Fast-ALPR: Đọc biển số                                  │
-│  • Vẽ bbox + tốc độ lên frame                              │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-        ┌──────────────┴──────────────┐
-        │                             │
-        ▼                             ▼
-┌───────────────┐         ┌──────────────────────┐
-│  STREAM       │         │  VIOLATION QUEUE     │
-│  (Web Admin)  │         │  (Vi phạm tốc độ)    │
-└───────────────┘         └──────────┬───────────┘
-                                     │
-                                     ▼
-                    ┌────────────────────────────────┐
-                    │  THREAD 3: VIOLATION WORKER   │
-                    │  • Tạo DB record              │
-                    │  • Crop ảnh xe/biển số        │
-                    │  • Tạo video vi phạm          │
-                    │  • Push vào ALPR queue        │
-                    └──────────┬─────────────────────┘
-                               │
-                               ▼
-                    ┌────────────────────────────────┐
-                    │  THREAD 5: ALPR WORKER        │
-                    │  • Đọc biển số từ ảnh         │
-                    │  • Validate & normalize        │
-                    │  • Enhance ảnh biển số        │
-                    │  • Update database            │
-                    │  • Push vào Telegram queue    │
-                    └──────────┬─────────────────────┘
-                               │
-                               ▼
-                    ┌────────────────────────────────┐
-                    │  THREAD 4: TELEGRAM WORKER    │
-                    │  • Gửi ảnh/video qua Bot      │
-                    │  • Tuần tự (tránh spam)       │
-                    └────────────────────────────────┘
+│  THREAD 2: Detection Worker                                  │
+│  - YOLOv11n: Detect vehicles                                 │
+│  - OC-SORT: Track objects                                    │
+│  - SpeedTracker: Calculate speed                             │
+└────────────────────────┬────────────────────────────────────┘
+                         │ alpr_realtime_queue
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  THREAD 3: ALPR Worker (Real-time)                           │
+│  - FastALPR: Detect license plates                           │
+│  - Validate plate format                                     │
+└────────────────────────┬────────────────────────────────────┘
+                         │ best_frame_queue
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  THREAD 4: Best Frame Selector                               │
+│  - Select best quality frame                                 │
+│  - Aggregate plate detections                                │
+└────────────────────────┬────────────────────────────────────┘
+                         │ violation_queue
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  THREAD 5: Violation Worker                                  │
+│  - Save to MySQL database                                    │
+│  - Create violation videos                                   │
+│  - Anti-duplicate check (10s cooldown)                       │
+└────────────────────────┬────────────────────────────────────┘
+                         │ telegram_queue
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  THREAD 6: Telegram Worker                                   │
+│  - Send notifications to Telegram                            │
+│  - Update violation status                                   │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-</div>
-
-### 🔄 Data Flow
-
-1. **Video Thread** đọc frame từ camera/video → `detection_queue`
-2. **Detection Worker** detect xe, tracking, tính tốc độ, đọc biển số
-3. **Admin Frame** (có bbox) → `stream_queue` → Web Dashboard
-4. **Violation detected** → `violation_queue` → Violation Worker
-5. **Violation Worker** tạo record DB, crop ảnh → `alpr_queue`
-6. **ALPR Worker** đọc biển số, update DB → `telegram_queue`
-7. **Telegram Worker** gửi thông báo qua Telegram Bot
-
-### 💾 Queues & Buffers
-
-| Queue/Buffer | Mục đích | Size | Type |
-|--------------|----------|------|------|
-| `detection_queue` | Frame từ video → detection | 15-20 | deque |
-| `stream_queue` | Frame có bbox → web stream | 30 | Queue |
-| `violation_queue` | Vi phạm → violation worker | 20 | Queue |
-| `alpr_queue` | Vi phạm → ALPR worker | 50 | Queue |
-| `telegram_queue` | Vi phạm → Telegram worker | 50 | Queue |
-| `admin_frame_buffer` | Backup frame có bbox | 90/60 | deque |
-| `violation_frame_buffer` | Frame gốc cho video vi phạm | 90 | dict[deque] |
 
 ---
 
-## 🚀 Cài đặt nhanh
+## 🛠️ Công nghệ sử dụng
 
-### 📋 Yêu cầu hệ thống
+### Backend
+- **Python 3.10** - Ngôn ngữ lập trình chính
+- **Flask 3.0.0** - Web framework
+- **MySQL 8.0** - Database
+- **PyTorch** - Deep learning framework
 
-- **Python**: 3.10+ 
-- **GPU**: NVIDIA GPU với CUDA 11.8+ (khuyến nghị) hoặc Apple Silicon
-- **RAM**: Tối thiểu 8GB (16GB khuyến nghị)
-- **Storage**: Tối thiểu 10GB (cho models và dependencies)
-- **Database**: MySQL 8.0+
-- **OS**: Windows 10+, Linux, macOS
+### AI/ML Models
+- **YOLOv11n** - Object detection (vehicles)
+- **OC-SORT/ByteTrack** - Multi-object tracking
+- **FastALPR** - License plate recognition
 
-### 1️⃣ Clone Repository
+### Frontend
+- **Bootstrap 4.6.2** - UI framework
+- **Font Awesome 6.5.1** - Icons
+- **Inter Font** - Typography
+- **JavaScript/jQuery** - Interactivity
+
+
+## 💻 Yêu cầu hệ thống
+
+### Minimum Requirements
+- **OS:** Windows 10/11, Ubuntu 20.04+, macOS 11+
+- **CPU:** Intel Core i5 hoặc tương đương
+- **RAM:** 8GB (khuyến nghị 16GB)
+- **Storage:** 10GB free space
+- **Python:** 3.10+
+
+### Recommended (for GPU acceleration)
+- **GPU:** NVIDIA GPU với CUDA 11.8+
+- **VRAM:** 4GB+
+- **CUDA:** 11.8
+- **cuDNN:** 8.x
+
+---
+
+## 📦 Cài đặt
+
+### 1. Clone repository
 
 ```bash
 git clone https://github.com/LeHoangPhuc2310/plate_violation_system.git
 cd plate_violation_system
 ```
 
-### 2️⃣ Tạo Virtual Environment
+### 2. Tạo virtual environment
 
-**Windows:**
 ```bash
+# Windows
 python -m venv venv
 venv\Scripts\activate
-```
 
-**Linux/macOS:**
-```bash
+# Linux/macOS
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 3️⃣ Cài đặt Dependencies
+### 3. Cài đặt dependencies
 
 ```bash
-pip install --upgrade pip
+# CPU version
+pip install -r requirements.txt
+
+# GPU version (NVIDIA CUDA 11.8)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Cài đặt GPU Support (NVIDIA)
+### 4. Cấu hình MySQL Database
 
-**Cài CUDA Toolkit:**
-- Download: https://developer.nvidia.com/cuda-downloads
-- Cài đặt CUDA 11.8 hoặc mới hơn
-
-**Cài PyTorch với CUDA:**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-```
-
-### 5️⃣ Cấu hình Database
-
-**Tạo database:**
 ```sql
 CREATE DATABASE plate_violation CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE plate_violation;
+
+-- Import init.sql
+SOURCE init.sql;
 ```
 
-**Tạo bảng:**
-```sql
-CREATE TABLE violations (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    plate VARCHAR(20),
-    speed FLOAT,
-    speed_limit INT,
-    time DATETIME,
-    image VARCHAR(255),
-    plate_image VARCHAR(255),
-    video_path VARCHAR(255),
-    vehicle_class VARCHAR(50)
-);
+### 5. Cấu hình Telegram Bot (Optional)
 
-CREATE TABLE vehicle_owner (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    plate VARCHAR(20) UNIQUE,
-    owner_name VARCHAR(255),
-    address VARCHAR(255),
-    phone VARCHAR(20)
-);
+1. Tạo bot mới với [@BotFather](https://t.me/botfather)
+2. Lấy Bot Token
+3. Lấy Chat ID của bạn
+4. Cập nhật trong `app.py`:
+
+```python
+TELEGRAM_BOT_TOKEN = "your_bot_token_here"
+TELEGRAM_CHAT_ID = "your_chat_id_here"
 ```
 
-### 6️⃣ Cấu hình Environment
-
-Tạo file `.env` từ template:
-```bash
-cp env.template .env
-```
-
-Chỉnh sửa `.env`:
-```env
-# Database
-MYSQL_HOST=localhost
-MYSQL_USER=root
-MYSQL_PASSWORD=your_password
-MYSQL_DB=plate_violation
-
-# Telegram Bot
-TELEGRAM_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-
-# Flask
-SECRET_KEY=your-secret-key-here
-FLASK_ENV=production
-PORT=5000
-```
-
-### 7️⃣ Chạy ứng dụng
+### 6. Chạy ứng dụng
 
 ```bash
 python app.py
@@ -265,292 +228,325 @@ python app.py
 
 Truy cập: **http://localhost:5000**
 
----
-
-## ⚙️ Cấu hình
-
-### 🎛️ Cấu hình Detector
-
-File: `app.py`
-
-```python
-# GPU/CPU detection
-DEVICE = 'cuda'  # 'cuda', 'mps', hoặc 'cpu'
-
-# Detection settings
-DETECTION_FREQUENCY = 1      # Detect mỗi frame
-DETECTION_SCALE = 1.0        # Scale frame (1.0 = full resolution)
-
-# Speed limit
-speed_limit = 40  # km/h
-
-# Violation cooldown
-VIOLATION_COOLDOWN = 3  # giây
-```
-
-### 🎨 Cấu hình Tracking
-
-File: `combined_detector.py`
-
-**OC-SORT:**
-```python
-OCSort(
-    det_thresh=0.25,      # Detection threshold
-    max_age=20,           # Max frames lost
-    min_hits=2,           # Min hits to confirm
-    iou_threshold=0.25    # IoU threshold
-)
-```
-
-### 📊 Cấu hình Speed Tracker
-
-File: `speed_tracker.py`
-
-```python
-SpeedTracker(
-    pixel_to_meter=0.13  # Camera: 0.13, Video: 0.2
-)
-```
-
-**Calibration:**
-- Đo khoảng cách thực tế giữa 2 điểm trong video (mét)
-- Đo khoảng cách pixel giữa 2 điểm đó
-- `pixel_to_meter = khoảng_cách_thực_tế / khoảng_cách_pixel`
+**Tài khoản mặc định:**
+- Username: `admin` / Password: `admin123` (Admin)
+- Username: `viewer` / Password: `viewer123` (Viewer)
 
 ---
 
-## 📊 Demo
+## 🎮 Hướng dẫn sử dụng
 
-### 🎥 Video Stream
+### 1. Đăng nhập
+- Truy cập http://localhost:5000
+- Đăng nhập với tài khoản admin hoặc viewer
 
-- **Admin Stream**: `/video_feed` - Video có bbox và tốc độ
-- **Clean Stream**: `/video_feed_clean` - Video gốc (không bbox)
+### 2. Upload video
+- Click **"Upload Video"** trên Dashboard
+- Chọn file video (MP4, AVI, MOV)
+- Click **"Upload"** để bắt đầu xử lý
 
-### 📱 Telegram Notifications
+### 3. Xem live stream
+- Video sẽ hiển thị real-time với bounding boxes
+- Thông tin tracking và tốc độ hiển thị trên mỗi xe
 
-Khi phát hiện vi phạm, hệ thống tự động gửi:
-- 📷 Ảnh xe vi phạm (clean, không bbox)
-- 🏷️ Ảnh biển số
-- 🎥 Video vi phạm (nếu có)
-- 📊 Thông tin: Biển số, tốc độ, chủ xe, địa chỉ
+### 4. Xem vi phạm
+- Click **"Xem vi phạm"** trên navbar
+- Sử dụng bộ lọc để tìm kiếm:
+  - Biển số xe
+  - Khoảng thời gian
+  - Mức vượt tốc độ
 
-### 📈 Web Dashboard
-
-- **Dashboard**: Xem vi phạm real-time
-- **History**: Lịch sử vi phạm
-- **Admin**: Quản lý xe, chỉnh sửa thông tin
-
----
-
-## 🔧 Sử dụng
-
-### 🎥 Chạy với Camera
-
-1. Kết nối camera USB hoặc IP camera
-2. Chỉnh sửa `app.py`:
-   ```python
-   cap = cv2.VideoCapture(0)  # USB camera
-   # hoặc
-   cap = cv2.VideoCapture("rtsp://ip:port/stream")  # IP camera
-   ```
-3. Chạy: `python app.py`
-
-### 📁 Chạy với Video File
-
-1. Upload video qua web interface: `/`
-2. Hoặc đặt video vào thư mục `uploads/`
-3. Hệ thống tự động xử lý
-
-### 📱 Cấu hình Telegram Bot
-
-1. Tạo bot với [@BotFather](https://t.me/BotFather)
-2. Lấy token
-3. Lấy Chat ID:
-   - Gửi tin nhắn cho bot
-   - Truy cập: `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - Tìm `chat.id`
-4. Thêm vào `.env`
+### 5. Quản lý chủ xe (Admin only)
+- Click **"Quản trị"** trên navbar
+- Thêm/Sửa/Xóa thông tin chủ xe
+- Tìm kiếm theo biển số, tên, địa chỉ, SĐT
 
 ---
 
-## 🌐 Deploy
+## 🐳 Docker Deployment
 
-### 🚀 Deploy lên AWS EC2
+### Quick Start
 
-Xem hướng dẫn chi tiết: [AWS_DEPLOY_GUIDE.md](AWS_DEPLOY_GUIDE.md)
-
-**Quick Start:**
 ```bash
-# 1. Launch EC2 instance (g4dn.xlarge hoặc lớn hơn)
-# 2. SSH vào instance
-ssh -i your-key.pem ubuntu@your-ec2-ip
+# Build and run with Docker Compose
+docker-compose up -d
 
-# 3. Clone và setup
-git clone https://github.com/LeHoangPhuc2310/plate_violation_system.git
-cd plate_violation_system
-chmod +x ec2-setup.sh
-./ec2-setup.sh
+# View logs
+docker-compose logs -f app
 
-# 4. Chạy ứng dụng
-python app.py
+# Stop services
+docker-compose down
 ```
 
-### 🐳 Deploy với Docker
+### Manual Docker Build
 
-Xem hướng dẫn: [DOCKER_GUIDE.md](DOCKER_GUIDE.md)
-
-**Quick Start:**
 ```bash
-# Build image
-docker build -f Dockerfile -t plate-violation:latest .
+# Build CPU version
+docker build -f Dockerfile.cpu -t plate-violation:cpu .
+
+# Build GPU version (requires NVIDIA Docker)
+docker build -f Dockerfile -t plate-violation:gpu .
 
 # Run container
-docker run -d \
-  -p 5000:5000 \
-  -e MYSQL_HOST=your-db-host \
-  -e MYSQL_USER=your-user \
-  -e MYSQL_PASSWORD=your-password \
-  -e MYSQL_DB=plate_violation \
-  plate-violation:latest
+docker run -d -p 5000:5000 \
+  -v $(pwd)/static/uploads:/app/static/uploads \
+  -v $(pwd)/static/plate_images:/app/static/plate_images \
+  -v $(pwd)/static/violation_videos:/app/static/violation_videos \
+  --name plate-violation \
+  plate-violation:cpu
 ```
 
-### ☁️ Deploy lên AWS ECS
+### Docker Compose Services
 
-Xem hướng dẫn: [README_AWS.md](README_AWS.md)
-
----
-
-## 📖 Tài liệu
-
-### 📚 Tài liệu chi tiết
-
-- **[QUY_TRINH_XU_LY_CHI_TIET.md](QUY_TRINH_XU_LY_CHI_TIET.md)** - Quy trình xử lý từ A-Z
-- **[HUONG_DAN_CAU_HINH.md](HUONG_DAN_CAU_HINH.md)** - Hướng dẫn cấu hình chi tiết
-- **[AWS_DEPLOY_GUIDE.md](AWS_DEPLOY_GUIDE.md)** - Hướng dẫn deploy AWS
-- **[DOCKER_GUIDE.md](DOCKER_GUIDE.md)** - Hướng dẫn Docker
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Xử lý lỗi thường gặp
-
-### 🔍 API Endpoints
-
-| Endpoint | Method | Mô tả |
-|----------|--------|-------|
-| `/` | GET | Dashboard chính |
-| `/video_feed` | GET | Video stream (có bbox) |
-| `/video_feed_clean` | GET | Video stream (clean) |
-| `/violations` | GET | Danh sách vi phạm |
-| `/api/violations` | GET | API lấy vi phạm (JSON) |
-| `/upload` | POST | Upload video |
-
-### 📊 Database Schema
-
-**violations:**
-- `id`: ID vi phạm
-- `plate`: Biển số
-- `speed`: Tốc độ (km/h)
-- `speed_limit`: Giới hạn tốc độ
-- `time`: Thời gian vi phạm
-- `image`: Ảnh vi phạm
-- `plate_image`: Ảnh biển số
-- `video_path`: Video vi phạm
-- `vehicle_class`: Loại xe
-
-**vehicle_owner:**
-- `id`: ID
-- `plate`: Biển số (unique)
-- `owner_name`: Tên chủ xe
-- `address`: Địa chỉ
-- `phone`: Số điện thoại
+- **mysql** - MySQL 8.0 database (port 3306)
+- **app** - Flask application (port 5000)
 
 ---
 
-## 🛠️ Công nghệ sử dụng
+## ☁️ AWS Cloud Deployment
 
-<div align="center">
+### Prerequisites
+- AWS Account
+- AWS CLI configured
+- Docker installed
 
-| Category | Technology | Version |
-|----------|-----------|---------|
-| **Web Framework** | Flask | 2.3.3 |
-| **Computer Vision** | OpenCV | 4.8.1 |
-| **Deep Learning** | PyTorch | 2.1.0 |
-| **Object Detection** | YOLOv11 (Ultralytics) | 8.1.0 |
-| **License Plate OCR** | Fast-ALPR | 0.3.0 |
-| **Tracking** | OC-SORT / ByteTrack | - |
-| **Database** | MySQL | 8.0+ |
-| **Tracking Filter** | FilterPy | 1.4.5 |
+### Deploy to AWS EC2
 
-</div>
+1. **Launch EC2 Instance**
+   - AMI: Ubuntu 22.04 LTS
+   - Instance Type: t3.medium (minimum)
+   - Security Group: Allow ports 22, 80, 443, 5000
+
+2. **Connect to EC2**
+   ```bash
+   ssh -i your-key.pem ubuntu@your-ec2-ip
+   ```
+
+3. **Install Docker**
+   ```bash
+   sudo apt update
+   sudo apt install -y docker.io docker-compose
+   sudo usermod -aG docker $USER
+   ```
+
+4. **Clone and Deploy**
+   ```bash
+   git clone https://github.com/LeHoangPhuc2310/plate_violation_system.git
+   cd plate_violation_system
+   docker-compose up -d
+   ```
+
+5. **Access Application**
+   - http://your-ec2-ip:5000
+
+### Deploy to AWS ECS (Elastic Container Service)
+
+Coming soon...
 
 ---
 
-## 🐛 Xử lý lỗi
+## 📡 API Documentation
 
-### ❌ Lỗi thường gặp
+### Authentication Endpoints
 
-**1. ModuleNotFoundError: No module named 'flask_mysqldb'**
-```bash
-pip install flask-mysqldb==1.0.1
-pip install Flask==2.3.3 Werkzeug==2.3.7
+#### POST /login
+Login to system
+```json
+{
+  "username": "admin",
+  "password": "admin123"
+}
 ```
 
-**2. CUDA out of memory**
-- Giảm `DETECTION_SCALE` xuống 0.7
-- Giảm batch size
-- Sử dụng model nhỏ hơn
+#### GET /logout
+Logout from system
 
-**3. Database connection error**
-- Kiểm tra MySQL đang chạy
-- Kiểm tra credentials trong `.env`
-- Kiểm tra firewall
+### Video Processing Endpoints
 
-Xem thêm: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+#### POST /upload
+Upload video for processing
+- **Content-Type:** multipart/form-data
+- **Body:** video file
+
+#### GET /video_feed
+Get MJPEG video stream
+
+#### POST /stop_camera
+Stop video processing
+
+### Violation Management Endpoints
+
+#### GET /history
+Get violation list with filters
+- **Query params:** plate, from_date, to_date, speed_over
+
+#### GET /autocomplete
+Autocomplete license plate search
+- **Query params:** q (search term)
+
+### Admin Endpoints (Admin only)
+
+#### GET /admin/vehicles
+Get vehicle owner list
+
+#### POST /edit_owner/<plate>
+Update vehicle owner information
+
+#### GET /delete/<plate>
+Delete vehicle owner
 
 ---
 
-## 🤝 Đóng góp
+## 📸 Screenshots
 
-Chúng tôi rất hoan nghênh mọi đóng góp! 
+### Dashboard - Live Video Stream
+![Dashboard](docs/screenshots/dashboard.png)
 
-1. Fork repository
-2. Tạo feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Mở Pull Request
+### Violation List
+![Violations](docs/screenshots/violations.png)
 
-### 📝 Code Style
+### Vehicle Management (Admin)
+![Admin](docs/screenshots/admin.png)
 
-- Tuân thủ PEP 8
-- Sử dụng type hints
-- Viết docstring cho functions
-- Comment code phức tạp
+### Login Page
+![Login](docs/screenshots/login.png)
+
+---
+
+## 🔧 Troubleshooting
+
+### Video không hiển thị
+- Kiểm tra browser console (F12) để xem lỗi
+- Đảm bảo `/video_feed` endpoint đang hoạt động
+- Thử refresh trang (Ctrl+F5)
+
+### Detection chậm
+- Sử dụng GPU nếu có thể
+- Giảm resolution video input
+- Tăng `DETECTION_SKIP_FRAMES` trong app.py
+
+### Database connection error
+- Kiểm tra MySQL service đang chạy
+- Verify database credentials trong app.py
+- Đảm bảo database `plate_violation` đã được tạo
+
+### Telegram không gửi được
+- Kiểm tra Bot Token và Chat ID
+- Verify bot đã được start (@BotFather)
+- Kiểm tra internet connection
+
+---
+
+## 🚀 Performance Optimization
+
+### CPU Optimization
+- Sử dụng YOLOv11n (nano) thay vì YOLOv11s/m/l
+- Tăng `DETECTION_SKIP_FRAMES` để giảm số frame xử lý
+- Giảm resolution video input
+
+### GPU Optimization
+- Cài đặt CUDA 11.8 và cuDNN 8.x
+- Sử dụng PyTorch với CUDA support
+- Tăng batch size nếu VRAM đủ lớn
+
+### Database Optimization
+- Tạo index cho các cột thường query (plate, time)
+- Sử dụng connection pooling
+- Định kỳ optimize tables
+
+---
+
+## 📊 System Metrics
+
+### Detection Performance
+- **YOLOv11n:** ~50-100 FPS (GPU), ~5-15 FPS (CPU)
+- **OC-SORT Tracking:** ~200 FPS
+- **FastALPR:** ~30-50 FPS
+- **Overall System:** ~10-30 FPS (depends on hardware)
+
+### Accuracy
+- **Vehicle Detection:** >95%
+- **License Plate Detection:** >90%
+- **Plate Recognition:** >85% (Vietnamese plates)
+- **Speed Calculation:** ±5 km/h
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📝 Changelog
+
+### Version 2.0.0 (2024-12-15)
+- ✅ Implemented 6-thread architecture for better performance
+- ✅ Added anti-duplicate violation system (10s cooldown)
+- ✅ Improved UI/UX with professional design
+- ✅ Added Docker and Docker Compose support
+- ✅ Enhanced database schema with proper indexes
+- ✅ Fixed video stream display issues
+- ✅ Optimized ALPR processing pipeline
+
+### Version 1.0.0 (2024-11-01)
+- 🎉 Initial release
+- ✅ Basic vehicle detection and tracking
+- ✅ License plate recognition
+- ✅ Speed violation detection
+- ✅ MySQL database integration
+- ✅ Telegram notifications
 
 ---
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
 ## 👨‍💻 Tác giả
 
-**LeHoangPhuc2310**
-
+**Lê Hoàng Phúc**
+- MSSV: 190501014
+- Trường: Đại học Bình Dương - Phân hiệu Cà Mau
+- Email: lehoangphuc2310@gmail.com
 - GitHub: [@LeHoangPhuc2310](https://github.com/LeHoangPhuc2310)
 
 ---
 
-## 🙏 Lời cảm ơn
+## 🙏 Acknowledgments
 
-- [Ultralytics](https://github.com/ultralytics/ultralytics) - YOLOv11
-- [Fast-ALPR](https://github.com/onurkavafoglu/fast-alpr) - License Plate Recognition
-- [OC-SORT](https://github.com/noahcao/OC_SORT) - Tracking algorithm
+- [Ultralytics YOLOv11](https://github.com/ultralytics/ultralytics) - Object detection
+- [OC-SORT](https://github.com/noahcao/OC_SORT) - Multi-object tracking
+- [FastALPR](https://github.com/ankandrew/fast-alpr) - License plate recognition
+- [Flask](https://flask.palletsprojects.com/) - Web framework
+- [Bootstrap](https://getbootstrap.com/) - UI framework
+
+---
+
+## 📞 Support
+
+Nếu bạn gặp vấn đề hoặc có câu hỏi, vui lòng:
+- Mở [Issue](https://github.com/LeHoangPhuc2310/plate_violation_system/issues) trên GitHub
+- Email: lehoangphuc2310@gmail.com
 
 ---
 
 <div align="center">
 
-### ⭐ Nếu project này hữu ích, hãy cho một star! ⭐
+**⭐ Nếu project này hữu ích, hãy cho một star nhé! ⭐**
 
-Made with ❤️ by LeHoangPhuc2310
+Made with ❤️ by Lê Hoàng Phúc
 
 </div>
+
+
+
+

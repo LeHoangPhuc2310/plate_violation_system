@@ -14,53 +14,86 @@
         font-family: "Poppins", sans-serif !important;
     }
     .hero-header {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
         color: white;
         border-radius: 18px;
-        padding: 30px;
+        padding: 35px 40px;
         margin-bottom: 30px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.25);
         position: relative;
         overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.1);
     }
-    
+
     .hero-header::before {
         content: '';
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="2" fill="rgba(255,255,255,0.1)"/></svg>') repeat;
-        opacity: 0.3;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(0,212,255,0.1) 0%, transparent 50%);
+        animation: rotate 20s linear infinite;
     }
-    
+
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
     .hero-header * {
         position: relative;
         z-index: 1;
     }
+
     .main-title {
-        font-size: 28px;
-        font-weight: 700;
-        margin-bottom: 10px;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        font-size: 32px;
+        font-weight: 800;
+        margin-bottom: 12px;
+        text-shadow: 2px 2px 8px rgba(0,0,0,0.3);
+        letter-spacing: -0.5px;
+        background: linear-gradient(90deg, #fff, #00d4ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
+
     .subtitle {
         font-size: 16px;
-        opacity: 0.95;
+        opacity: 0.9;
+        font-weight: 400;
+        letter-spacing: 0.3px;
+    }
+
+    /* 6-Thread Architecture Badge */
+    .architecture-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: linear-gradient(135deg, #00d4ff 0%, #0066ff 100%);
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-top: 12px;
+        box-shadow: 0 4px 15px rgba(0,212,255,0.4);
+    }
+
+    .architecture-badge i {
+        font-size: 14px;
     }
     .dash-card {
-        background: white;
-        border-radius: 12px;
-        padding: 25px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        background: linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%);
+        border-radius: 16px;
+        padding: 28px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
         margin-bottom: 20px;
-        transition: all 0.3s ease;
-        border: 2px solid transparent;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid rgba(0,0,0,0.05);
         position: relative;
         overflow: hidden;
     }
-    
+
     .dash-card::before {
         content: '';
         position: absolute;
@@ -68,36 +101,46 @@
         left: 0;
         width: 4px;
         height: 100%;
-        background: linear-gradient(180deg, #0066ff 0%, #0052cc 100%);
-        transition: width 0.3s ease;
+        background: linear-gradient(180deg, #00d4ff 0%, #0066ff 100%);
+        transition: width 0.4s ease;
     }
-    
+
     .dash-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-        border-color: #0066ff;
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 20px 40px rgba(0,102,255,0.15);
+        border-color: rgba(0,212,255,0.3);
     }
-    
+
     .dash-card:hover::before {
         width: 100%;
-        opacity: 0.05;
+        opacity: 0.08;
     }
+
     .dash-icon {
-        width: 60px;
-        height: 60px;
-        border-radius: 50%;
+        width: 70px;
+        height: 70px;
+        border-radius: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 0 auto 15px;
-        font-size: 24px;
+        margin: 0 auto 18px;
+        font-size: 28px;
         color: white;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.2);
     }
-    .bg-red { background: #dc3545; }
-    .bg-blue { background: #007bff; }
-    .bg-green { background: #28a745; }
+
+    .bg-red {
+        background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+    }
+    .bg-blue {
+        background: linear-gradient(135deg, #00d4ff 0%, #0066ff 100%);
+    }
+    .bg-green {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+
     .dash-info h6 {
-        color: #666;
+        color: #6c757d;
         font-size: 14px;
         margin-bottom: 10px;
     }
@@ -109,34 +152,37 @@
 
     /* ================= MONITORING SYSTEM STYLES ================= */
     .monitoring-card {
-        background: #1a1a2e;
-        border: 2px solid #16213e;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        background: linear-gradient(145deg, #1a1a2e 0%, #0f0f1a 100%);
+        border: 1px solid rgba(0,212,255,0.2);
+        box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        border-radius: 20px;
     }
 
     .monitoring-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 15px 20px;
-        background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
-        border-radius: 12px;
+        padding: 18px 25px;
+        background: linear-gradient(135deg, rgba(0,212,255,0.1) 0%, rgba(0,102,255,0.1) 100%);
+        border-radius: 16px;
         margin-bottom: 20px;
+        border: 1px solid rgba(0,212,255,0.15);
     }
 
     .monitoring-title {
         color: #fff;
-        font-size: 20px;
+        font-size: 22px;
         font-weight: 700;
         margin: 0;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
     }
 
     .monitoring-title i {
         color: #00d4ff;
-        font-size: 24px;
+        font-size: 26px;
+        filter: drop-shadow(0 0 8px rgba(0,212,255,0.5));
     }
 
     .status-indicator {
@@ -172,16 +218,30 @@
     .video-grid-wrapper {
         background: #000;
         border-radius: 12px;
-        padding: 15px;
+        padding: 20px;
         position: relative;
         box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+        min-height: 450px; /* Tăng chiều cao tối thiểu */
+    }
+
+    /* Khi có video upload, hiển thị full */
+    .video-grid-wrapper.has-upload {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
     }
 
     .video-grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr); /* 3 cột cố định */
+        grid-template-columns: 1fr; /* 1 cột khi có video upload */
         gap: 15px;
         width: 100%;
+        min-height: 400px; /* Tăng chiều cao grid */
+    }
+
+    /* Khi có nhiều video, hiển thị 3 cột */
+    .video-grid.multi-video {
+        grid-template-columns: repeat(3, 1fr);
     }
     
     /* Responsive: Trên màn hình nhỏ hơn, hiển thị 2 cột */
@@ -425,15 +485,44 @@
         font-size: 13px;
     }
 
-    /* Styles for uploaded video with detection */
+    /* Styles for uploaded video with detection - PHÓNG TO */
     .uploaded-video {
-        border-color: #00ff00 !important;
-        box-shadow: 0 0 20px rgba(0,255,0,0.4) !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        border: 3px solid #00ff00 !important;
+        box-shadow: 0 0 30px rgba(0,255,0,0.5) !important;
+        grid-column: 1 / -1; /* Chiếm toàn bộ chiều rộng */
+        max-width: 100%; /* Full width */
+        margin: 0 auto; /* Căn giữa */
+        background: #000;
+        min-height: 400px; /* Đảm bảo có chiều cao tối thiểu */
     }
 
     .uploaded-video:hover {
         border-color: #00ff00 !important;
-        box-shadow: 0 0 30px rgba(0,255,0,0.6) !important;
+        box-shadow: 0 0 40px rgba(0,255,0,0.7) !important;
+    }
+
+    /* Tăng kích thước video wrapper cho uploaded video */
+    .uploaded-video .video-item-wrapper {
+        padding-top: 56.25%; /* 16:9 aspect ratio */
+        min-height: 350px;
+        position: relative;
+    }
+
+    /* Đảm bảo stream image hiển thị đúng */
+    .uploaded-video .stream-video {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
     }
 
     .stream-video {
@@ -584,6 +673,9 @@
     <p class="subtitle">
         <i class="fas fa-microchip" style="margin-right: 8px;"></i> Ứng dụng Trí tuệ Nhân tạo trong giám sát giao thông thời gian thực
     </p>
+    <div class="architecture-badge">
+        <i class="fas fa-bolt"></i> 6-Thread Architecture | YOLO + OC-SORT + FastALPR
+    </div>
 </div>
 
 <!-- ================= DASHBOARD ================= -->
@@ -651,11 +743,32 @@
             </div>
         </div>
         
-        <!-- Video player area - chỉ hiển thị khi chọn video -->
+        <!-- Video player area - chỉ hiển thị khi chọn video hoặc upload -->
         <div class="video-grid-wrapper" id="videoGridWrapper" style="display: none;">
             <div class="video-grid" id="videoGrid">
                 <!-- Selected video will be displayed here -->
             </div>
+        </div>
+
+        <!-- LIVE STREAM - Hiển thị khi upload video -->
+        <div id="liveStreamContainer" style="display: none; background: #000; border-radius: 12px; padding: 10px; margin-bottom: 20px; max-width: 800px; margin-left: auto; margin-right: auto;">
+            <div style="position: relative; width: 100%; padding-top: 56.25%; background: #111; border-radius: 8px; overflow: hidden; border: 2px solid #00ff00;">
+                <img id="liveStreamImg"
+                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000;"
+                     alt="Live Detection Stream">
+                <div style="position: absolute; top: 8px; left: 8px; background: rgba(0,255,0,0.9); color: #000; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;">
+                    <i class="fas fa-circle" style="color: red; animation: blink 1s infinite;"></i> LIVE
+                </div>
+                <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 10px;">
+                    YOLO + OC-SORT + FastALPR
+                </div>
+            </div>
+            <style>
+                @keyframes blink {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.3; }
+                }
+            </style>
         </div>
         
         <div class="system-info-bar">
@@ -1215,159 +1328,43 @@
     }
     
     // Thêm video player cho video đã upload (có detection/tracking)
+    // SỬ DỤNG LIVE STREAM CONTAINER ĐƠN GIẢN
     function addUploadedVideoPlayer() {
-        const videoGrid = document.getElementById('videoGrid');
-        const videoGridWrapper = document.getElementById('videoGridWrapper');
+        console.log('[VIDEO UPLOAD] 🎬 Starting live stream...');
+
+        // Ẩn video list
         const videoListWrapper = document.getElementById('videoListWrapper');
-        
-        // TỐI ƯU: Ẩn video list và hiển thị video grid khi upload video
         if (videoListWrapper) {
             videoListWrapper.style.display = 'none';
         }
-        if (videoGridWrapper) {
-            videoGridWrapper.style.display = 'block';
-        }
-        
-        // TỐI ƯU: Dừng và ẩn tất cả video demo khi có video upload để tập trung tài nguyên
-        const demoVideos = document.querySelectorAll('.video-item:not(.uploaded-video)');
-        demoVideos.forEach(video => {
-            // Pause video element nếu có
-            const videoElement = video.querySelector('video');
-            if (videoElement) {
-                videoElement.pause();
-                videoElement.currentTime = 0; // Reset về đầu
-            }
-            video.style.display = 'none';
-        });
-        
-        // Dừng video đang phát từ list nếu có
-        if (currentPlayingVideo !== null) {
-            stopVideo(currentPlayingVideo);
-        }
-        
-        // Cập nhật trạng thái play/pause
-        isAllPlaying = false;
-        const playAllBtn = document.getElementById('playAllBtn');
-        if (playAllBtn) {
-            playAllBtn.innerHTML = '<i class="fas fa-play"></i> Phát tất cả';
-        }
-        console.log('[VIDEO UPLOAD] ✅ Đã ẩn video demo và hiển thị video upload');
-        
-        // Kiểm tra xem đã có video upload chưa
-        const existingUploadVideo = document.getElementById('uploaded-video-item');
-        if (existingUploadVideo) {
-            existingUploadVideo.remove();
-        }
-        
-        // Tạo video item mới
-        const videoItem = document.createElement('div');
-        videoItem.className = 'video-item uploaded-video';
-        videoItem.id = 'uploaded-video-item';
-        videoItem.style.display = 'block'; // Đảm bảo hiển thị
-        
-        // Create video wrapper
-        const videoWrapper = document.createElement('div');
-        videoWrapper.className = 'video-item-wrapper';
-        
-        // Tạo img element để hiển thị MJPEG stream từ /video_feed
-        // Stream này đã có detection và tracking từ combined_detector
-        const streamImg = document.createElement('img');
-        streamImg.className = 'monitoring-video stream-video';
-        streamImg.style.objectFit = 'cover';
-        streamImg.style.width = '100%';
-        streamImg.style.height = '100%';
-        streamImg.style.position = 'absolute';
-        streamImg.style.top = '0';
-        streamImg.style.left = '0';
-        streamImg.style.backgroundColor = '#000'; // Background đen khi chưa load
-        streamImg.alt = 'Video với Detection & Tracking';
-        
-        // TỐI ƯU: Đợi video processing khởi động và buffer có frame (tăng delay lên 2 giây)
-        setTimeout(() => {
-            streamImg.src = '/video_feed?' + Date.now(); // Thêm timestamp để tránh cache
-            console.log('[VIDEO UPLOAD] Starting video stream...');
-        }, 2000); // Đợi 2 giây để video processing và buffer sẵn sàng
-        
-        // Tạo overlay
-        const overlay = document.createElement('div');
-        overlay.className = 'video-overlay';
-        
-        // Tạo label với badge đặc biệt
-        const label = document.createElement('div');
-        label.className = 'video-label';
-        label.innerHTML = '<i class="fas fa-upload"></i> Video Upload (Live Detection)';
-        label.style.borderLeftColor = '#00ff00'; // Màu xanh lá để phân biệt
-        
-        // Badge trạng thái
-        const statusBadge = document.createElement('div');
-        statusBadge.className = 'video-status-badge';
-        statusBadge.innerHTML = '<span class="status-dot-small active"></span> Đang xử lý';
-        statusBadge.style.position = 'absolute';
-        statusBadge.style.top = '10px';
-        statusBadge.style.right = '10px';
-        statusBadge.style.background = 'rgba(0,0,0,0.8)';
-        statusBadge.style.padding = '6px 12px';
-        statusBadge.style.borderRadius = '6px';
-        statusBadge.style.color = '#00ff00';
-        statusBadge.style.fontSize = '11px';
-        statusBadge.style.fontWeight = '600';
-        statusBadge.style.zIndex = '10';
-        
-        // Assemble structure
-        videoWrapper.appendChild(streamImg);
-        videoWrapper.appendChild(overlay);
-        videoWrapper.appendChild(label);
-        videoWrapper.appendChild(statusBadge);
-        videoItem.appendChild(videoWrapper);
-        
-        // Thêm vào đầu grid (ưu tiên hiển thị)
-        videoGrid.insertBefore(videoItem, videoGrid.firstChild);
-        
-        // TỐI ƯU: Auto refresh stream với error handling
-        const refreshInterval = setInterval(function() {
-            if (streamImg.src && streamImg.complete) {
-                // Chỉ refresh nếu image đã load xong
-                streamImg.src = '/video_feed?' + Date.now();
-            }
-        }, 5000); // TỐI ƯU: Refresh mỗi 5 giây để giảm tải server
-        
-        // Error handling cho image load - TỐI ƯU: Retry với exponential backoff
-        let retryCount = 0;
-        const maxRetries = 10;
-        streamImg.onerror = function() {
-            retryCount++;
-            if (retryCount <= maxRetries) {
-                console.log(`[VIDEO STREAM] Error loading stream, retrying... (${retryCount}/${maxRetries})`);
-                const delay = Math.min(1000 * retryCount, 5000); // Max 5 giây delay
+
+        // Hiển thị live stream container
+        const liveStreamContainer = document.getElementById('liveStreamContainer');
+        const liveStreamImg = document.getElementById('liveStreamImg');
+
+        if (liveStreamContainer && liveStreamImg) {
+            liveStreamContainer.style.display = 'block';
+
+            // Đợi 1.5 giây để video processing khởi động
+            setTimeout(() => {
+                liveStreamImg.src = '/video_feed?' + Date.now();
+                console.log('[VIDEO UPLOAD] ✅ Live stream started: /video_feed');
+            }, 1500);
+
+            // Error handling
+            liveStreamImg.onerror = function() {
+                console.log('[VIDEO STREAM] Error, retrying in 2s...');
                 setTimeout(() => {
-                    if (streamImg.src) {
-                        streamImg.src = '/video_feed?' + Date.now();
-                    }
-                }, delay);
-            } else {
-                console.error('[VIDEO STREAM] Failed to load stream after multiple retries');
-                statusBadge.innerHTML = '<span class="status-dot-small" style="background: #ff0000;"></span> Lỗi tải video';
-                statusBadge.style.color = '#ff0000';
-            }
-        };
-        
-        streamImg.onload = function() {
-            console.log('[VIDEO STREAM] Stream loaded successfully');
-            retryCount = 0; // Reset retry count khi load thành công
-            statusBadge.innerHTML = '<span class="status-dot-small active"></span> Đang phát';
-            statusBadge.style.color = '#00ff00';
-        };
-        
-        // Cleanup khi video item bị xóa
-        const observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (!document.getElementById('uploaded-video-item')) {
-                    clearInterval(refreshInterval);
-                    observer.disconnect();
-                }
-            });
-        });
-        observer.observe(videoGrid, { childList: true, subtree: true });
+                    liveStreamImg.src = '/video_feed?' + Date.now();
+                }, 2000);
+            };
+
+            liveStreamImg.onload = function() {
+                console.log('[VIDEO STREAM] ✅ Stream loaded successfully');
+            };
+        } else {
+            console.error('[VIDEO UPLOAD] ❌ Live stream container not found!');
+        }
     }
     
     // Stop video upload handler
@@ -1394,12 +1391,22 @@
                         // Ẩn nút dừng
                         stopBtn.style.display = 'none';
                         
-                        // Xóa video player đã upload
+                        // Ẩn live stream container
+                        const liveStreamContainer = document.getElementById('liveStreamContainer');
+                        const liveStreamImg = document.getElementById('liveStreamImg');
+                        if (liveStreamContainer) {
+                            liveStreamContainer.style.display = 'none';
+                        }
+                        if (liveStreamImg) {
+                            liveStreamImg.src = ''; // Dừng stream
+                        }
+
+                        // Xóa video player đã upload (nếu có)
                         const uploadedVideoItem = document.getElementById('uploaded-video-item');
                         if (uploadedVideoItem) {
                             uploadedVideoItem.remove();
                         }
-                        
+
                         // TỐI ƯU: Hiển thị lại video list và ẩn video grid
                         const videoGridWrapper = document.getElementById('videoGridWrapper');
                         const videoListWrapper = document.getElementById('videoListWrapper');
