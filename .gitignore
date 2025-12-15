@@ -89,3 +89,10 @@ existing-infra-config.json
 
 # Deployment scripts with sensitive info
 deploy-to-ec2.sh
+
+# Violations data folder (chứa ảnh và video vi phạm)
+violations/
+
+# IDE files
+.cursor/
+.idea/
