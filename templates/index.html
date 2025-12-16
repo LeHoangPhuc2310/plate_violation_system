@@ -1755,17 +1755,129 @@
     let latestDetections = [];
     let videoResolution = [1920, 1080];
     let speedLimit = 40;
+    let canvasCtx = null;
+    let canvasElement = null;
+    let canvasInitialized = false;
+
+    // Global draw function that can be called from anywhere
+    function drawDetectionsGlobal() {
+        if (!canvasCtx || !canvasElement) return;
+
+        if (!CANVAS_CONFIG.SHOW_BBOX) {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            return;
+        }
+
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+        const scaleX = canvasElement.width / videoResolution[0];
+        const scaleY = canvasElement.height / videoResolution[1];
+
+        latestDetections.forEach(det => {
+            drawBoundingBoxGlobal(det, scaleX, scaleY);
+        });
+    }
+
+    function drawBoundingBoxGlobal(detection, scaleX, scaleY) {
+        if (!canvasCtx) return;
+
+        const [x1, y1, x2, y2] = detection.bbox;
+        const x = x1 * scaleX;
+        const y = y1 * scaleY;
+        const w = (x2 - x1) * scaleX;
+        const h = (y2 - y1) * scaleY;
+
+        const color = detection.violation
+            ? CANVAS_CONFIG.BBOX_COLORS.violation
+            : CANVAS_CONFIG.BBOX_COLORS.normal;
+
+        canvasCtx.strokeStyle = color;
+        canvasCtx.lineWidth = CANVAS_CONFIG.BBOX_WIDTH;
+        canvasCtx.strokeRect(x, y, w, h);
+
+        if (CANVAS_CONFIG.SHOW_SPEED || CANVAS_CONFIG.SHOW_PLATE) {
+            drawTextInfoGlobal(detection, x, y, color);
+        }
+    }
+
+    function drawTextInfoGlobal(detection, x, y, color) {
+        if (!canvasCtx) return;
+
+        let textLines = [];
+        textLines.push(`ID: ${detection.track_id}`);
+
+        if (CANVAS_CONFIG.SHOW_SPEED && detection.speed !== null) {
+            textLines.push(`${detection.speed.toFixed(1)} km/h`);
+        }
+
+        if (CANVAS_CONFIG.SHOW_PLATE && detection.plate) {
+            textLines.push(`🚗 ${detection.plate}`);
+        }
+
+        canvasCtx.font = CANVAS_CONFIG.TEXT_FONT;
+        const lineHeight = 20;
+        const padding = 5;
+        const maxWidth = Math.max(...textLines.map(t => canvasCtx.measureText(t).width));
+
+        canvasCtx.fillStyle = `rgba(0, 0, 0, ${CANVAS_CONFIG.TEXT_BG_ALPHA})`;
+        canvasCtx.fillRect(
+            x,
+            y - (textLines.length * lineHeight + padding),
+            maxWidth + padding * 2,
+            textLines.length * lineHeight + padding
+        );
+
+        canvasCtx.fillStyle = color;
+        textLines.forEach((line, i) => {
+            canvasCtx.fillText(
+                line,
+                x + padding,
+                y - (textLines.length - i - 1) * lineHeight - padding
+            );
+        });
+    }
+
+    function connectSSE() {
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        eventSource = new EventSource(CANVAS_CONFIG.SSE_URL);
+
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                latestDetections = data.detections || [];
+                videoResolution = data.video_resolution || [1920, 1080];
+                speedLimit = data.speed_limit || 40;
+                drawDetectionsGlobal();
+            } catch (e) {
+                console.error('[SSE] Parse error:', e);
+            }
+        };
+
+        eventSource.onerror = (error) => {
+            console.error('[SSE] Connection error:', error);
+            eventSource.close();
+            eventSource = null;
+            setTimeout(connectSSE, 3000);
+        };
+
+        console.log('[SSE] Connected to detection stream');
+    }
 
     function initCanvasOverlay() {
         const videoImg = document.getElementById('liveStreamImg');
         const canvas = document.getElementById('bboxCanvas');
-        
+
         if (!videoImg || !canvas) {
             console.log('[CANVAS] Video or canvas not found, skipping overlay init');
             return;
         }
 
-        const ctx = canvas.getContext('2d');
+        // Store global references
+        canvasElement = canvas;
+        canvasCtx = canvas.getContext('2d');
 
         function syncCanvasSize() {
             canvas.width = videoImg.clientWidth;
@@ -1776,137 +1888,55 @@
         window.addEventListener('resize', syncCanvasSize);
         syncCanvasSize();
 
-        function connectSSE() {
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            eventSource = new EventSource(CANVAS_CONFIG.SSE_URL);
-
-            eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    latestDetections = data.detections || [];
-                    videoResolution = data.video_resolution || [1920, 1080];
-                    speedLimit = data.speed_limit || 40;
-                    drawDetections(ctx, canvas);
-                } catch (e) {
-                    console.error('[SSE] Parse error:', e);
-                }
-            };
-
-            eventSource.onerror = (error) => {
-                console.error('[SSE] Connection error:', error);
-                eventSource.close();
-                setTimeout(connectSSE, 3000);
-            };
-
-            console.log('[SSE] Connected to detection stream');
+        // Only connect SSE once
+        if (!eventSource) {
+            connectSSE();
         }
 
-        function drawDetections(ctx, canvas) {
-            if (!CANVAS_CONFIG.SHOW_BBOX) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                return;
-            }
+        canvasInitialized = true;
+        console.log('[Canvas Overlay] Initialized');
+    }
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            const scaleX = canvas.width / videoResolution[0];
-            const scaleY = canvas.height / videoResolution[1];
-
-            latestDetections.forEach(det => {
-                drawBoundingBox(ctx, det, scaleX, scaleY);
-            });
-        }
-
-        function drawBoundingBox(ctx, detection, scaleX, scaleY) {
-            const [x1, y1, x2, y2] = detection.bbox;
-            const x = x1 * scaleX;
-            const y = y1 * scaleY;
-            const w = (x2 - x1) * scaleX;
-            const h = (y2 - y1) * scaleY;
-
-            const color = detection.violation 
-                ? CANVAS_CONFIG.BBOX_COLORS.violation 
-                : CANVAS_CONFIG.BBOX_COLORS.normal;
-
-            ctx.strokeStyle = color;
-            ctx.lineWidth = CANVAS_CONFIG.BBOX_WIDTH;
-            ctx.strokeRect(x, y, w, h);
-
-            if (CANVAS_CONFIG.SHOW_SPEED || CANVAS_CONFIG.SHOW_PLATE) {
-                drawTextInfo(ctx, detection, x, y, color);
-            }
-        }
-
-        function drawTextInfo(ctx, detection, x, y, color) {
-            let textLines = [];
-            textLines.push(`ID: ${detection.track_id}`);
-
-            if (CANVAS_CONFIG.SHOW_SPEED && detection.speed !== null) {
-                textLines.push(`${detection.speed.toFixed(1)} km/h`);
-            }
-
-            if (CANVAS_CONFIG.SHOW_PLATE && detection.plate) {
-                textLines.push(`🚗 ${detection.plate}`);
-            }
-
-            ctx.font = CANVAS_CONFIG.TEXT_FONT;
-            const lineHeight = 20;
-            const padding = 5;
-            const maxWidth = Math.max(...textLines.map(t => ctx.measureText(t).width));
-
-            ctx.fillStyle = `rgba(0, 0, 0, ${CANVAS_CONFIG.TEXT_BG_ALPHA})`;
-            ctx.fillRect(
-                x,
-                y - (textLines.length * lineHeight + padding),
-                maxWidth + padding * 2,
-                textLines.length * lineHeight + padding
-            );
-
-            ctx.fillStyle = color;
-            textLines.forEach((line, i) => {
-                ctx.fillText(
-                    line,
-                    x + padding,
-                    y - (textLines.length - i - 1) * lineHeight - padding
-                );
-            });
-        }
-
+    // Setup toggle buttons ONCE on page load (outside initCanvasOverlay)
+    function setupToggleButtons() {
         const toggleBboxBtn = document.getElementById('toggleBbox');
         const toggleSpeedBtn = document.getElementById('toggleSpeed');
         const bboxStatus = document.getElementById('bboxStatus');
         const speedStatus = document.getElementById('speedStatus');
 
-        if (toggleBboxBtn) {
+        if (toggleBboxBtn && !toggleBboxBtn.hasAttribute('data-initialized')) {
+            toggleBboxBtn.setAttribute('data-initialized', 'true');
             toggleBboxBtn.addEventListener('click', () => {
                 CANVAS_CONFIG.SHOW_BBOX = !CANVAS_CONFIG.SHOW_BBOX;
                 bboxStatus.textContent = `Bbox: ${CANVAS_CONFIG.SHOW_BBOX ? 'ON' : 'OFF'}`;
-                drawDetections(ctx, canvas);
+                console.log('[TOGGLE] Bbox:', CANVAS_CONFIG.SHOW_BBOX ? 'ON' : 'OFF');
+                drawDetectionsGlobal();
             });
+            console.log('[TOGGLE] Bbox button initialized');
         }
 
-        if (toggleSpeedBtn) {
+        if (toggleSpeedBtn && !toggleSpeedBtn.hasAttribute('data-initialized')) {
+            toggleSpeedBtn.setAttribute('data-initialized', 'true');
             toggleSpeedBtn.addEventListener('click', () => {
                 CANVAS_CONFIG.SHOW_SPEED = !CANVAS_CONFIG.SHOW_SPEED;
                 speedStatus.textContent = `Speed: ${CANVAS_CONFIG.SHOW_SPEED ? 'ON' : 'OFF'}`;
-                drawDetections(ctx, canvas);
+                console.log('[TOGGLE] Speed:', CANVAS_CONFIG.SHOW_SPEED ? 'ON' : 'OFF');
+                drawDetectionsGlobal();
             });
+            console.log('[TOGGLE] Speed button initialized');
         }
-
-        connectSSE();
-        console.log('[Canvas Overlay] Initialized');
     }
 
     // Initialize on page load - TỐI ƯU: Defer heavy operations
     $(document).ready(function() {
         console.log('[INIT] Page loaded, initializing...');
-        
+
         // TỐI ƯU: Load video players ngay
         initVideoPlayers();
-        
+
+        // Setup toggle buttons FIRST (before canvas overlay)
+        setupToggleButtons();
+
         // Initialize canvas overlay
         initCanvasOverlay();
         

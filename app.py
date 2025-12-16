@@ -856,7 +856,12 @@ def save_violation_data(detection, speed, frame):
             return
 
         timestamp = time.time()
-        temp_plate = normalize_plate(plate) if plate else f"UNKNOWN_{track_id}"
+        temp_plate = normalize_plate(plate) if plate else None
+
+        # Skip UNKNOWN vehicles (no valid plate)
+        if not temp_plate or not is_valid_plate(temp_plate):
+            print(f"[VIOLATION SAVER] ⏭️ Skipping violation without valid plate: track_id={track_id}")
+            return
 
         # Get clean frames from buffer
         clean_frames = []
@@ -2110,6 +2115,24 @@ def violation_worker():
             if plate_crop is None and violation_data.get('plate_crop') is not None:
                 plate_crop = violation_data.get('plate_crop')
                 print(f"[VIOLATION THREAD] ⚠️ Fallback: sử dụng plate_crop từ alpr_realtime_worker")
+
+            # ============================================================================
+            # EARLY CHECK: Skip violations without valid plate (UNKNOWN vehicles)
+            # This check is done BEFORE creating video to avoid creating UNKNOWN folders
+            # ============================================================================
+            normalized_plate = normalize_plate(plate) if plate else None
+            is_plate_valid = normalized_plate and is_valid_plate(normalized_plate)
+
+            if not is_plate_valid:
+                print(f"[VIOLATION THREAD] ⏭️ Skipping violation without valid plate: track_id={track_id}, plate={plate}")
+                continue
+
+            # Check cooldown for valid plates (also do early to save processing)
+            can_save = can_save_violation(track_id, plate)
+            if not can_save:
+                print(f"[VIOLATION THREAD] ⏳ Skip duplicate: track_id={track_id}, plate={plate}")
+                continue
+
             # ============================================================================
             # CREATE 5-SECOND VIOLATION VIDEO (FFmpeg + OpenCV hybrid)
             # ============================================================================
@@ -2158,10 +2181,8 @@ def violation_worker():
                         from datetime import datetime
                         now = datetime.now()
 
-                        # Get normalized plate for folder name
-                        plate_folder = normalize_plate(plate) if plate else f"UNKNOWN_{track_id}"
-                        # Replace invalid characters for folder name
-                        plate_folder = plate_folder.replace('/', '_').replace('\\', '_').replace(':', '_')
+                        # Get normalized plate for folder name (already validated, no UNKNOWN)
+                        plate_folder = normalized_plate.replace('/', '_').replace('\\', '_').replace(':', '_')
 
                         # Create date-based folder structure
                         date_folder = os.path.join(
@@ -2324,29 +2345,15 @@ def violation_worker():
 
             # ============================================================================
             # Continue with existing code (save images, database, telegram)
+            # NOTE: is_plate_valid and can_save checks are done EARLY (before video creation)
             # ============================================================================
-
-            normalized_plate = normalize_plate(plate) if plate else None
-            is_plate_valid = normalized_plate and is_valid_plate(normalized_plate)
-
-            # SKIP violations without valid plate number (UNKNOWN vehicles)
-            if not is_plate_valid:
-                # print(f"[VIOLATION THREAD] ⏭️ Skipping violation without valid plate: track_id={track_id}")
-                continue
-
-            # Check cooldown for valid plates
-            can_save = can_save_violation(track_id, plate)
-            # print(f"[VIOLATION THREAD] can_save_violation(plate={plate}) = {can_save}")
-            if not can_save:
-                # print(f"[VIOLATION THREAD] ⏳ Skip duplicate: track_id={track_id}, plate={plate}")
-                continue
 
             # Generate organized folder structure for images: YYYY/MM/DD/plate/
             from datetime import datetime
             now = datetime.now()
 
-            # Get normalized plate for folder name
-            plate_folder = normalize_plate(plate) if plate else f"UNKNOWN_{track_id}"
+            # Get normalized plate for folder name (already validated above, no UNKNOWN)
+            plate_folder = normalized_plate
             # Replace invalid characters for folder name
             plate_folder = plate_folder.replace('/', '_').replace('\\', '_').replace(':', '_')
 
@@ -2462,8 +2469,8 @@ def violation_worker():
                                 print(f"[VIOLATION THREAD] ⚠️ Lỗi khi lưu thông tin chủ xe: {e}")
                                 conn.rollback()
 
-                        # FIX: Cho phép lưu vi phạm ngay cả khi không có plate (dùng NULL hoặc track_id)
-                        db_plate = normalized_plate if normalized_plate else f"UNKNOWN_{track_id}"
+                        # Use normalized_plate (already validated above, no UNKNOWN)
+                        db_plate = normalized_plate
                         cursor.execute("""
                             INSERT INTO violations
                             (plate, vehicle_class, speed, speed_limit, image, plate_image, video, status, time)
@@ -2484,12 +2491,8 @@ def violation_worker():
                 import traceback
                 traceback.print_exc()
 
-            final_plate = normalized_plate if normalized_plate else plate
-
-            # FIX: Cho phép gửi Telegram ngay cả khi không có plate (dùng track_id)
-            if not final_plate:
-                final_plate = f"UNKNOWN_{track_id}"
-                print(f"[VIOLATION THREAD] ⚠️ Không có biển số, dùng track_id: {final_plate}")
+            # Use normalized_plate (already validated above, no UNKNOWN)
+            final_plate = normalized_plate
 
             if not vehicle_img_path or not os.path.exists(vehicle_img_path):
                 print(f"[VIOLATION THREAD] ❌ Bỏ qua vi phạm: Không có ảnh vi phạm xe (track_id={track_id}, path={vehicle_img_path})")
