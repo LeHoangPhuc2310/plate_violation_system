@@ -54,6 +54,11 @@ def format_vietnam_time(dt=None):
 app = Flask(__name__)
 app.secret_key = "your-secret-key-123"
 
+# Tắt Werkzeug logging để giảm terminal noise
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)  # Chỉ hiện ERROR, không hiện 404/200 requests
+
 app.config['MYSQL_HOST'] = os.getenv('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.getenv('MYSQL_USER', 'root')
 app.config['MYSQL_PASSWORD'] = os.getenv('MYSQL_PASSWORD', '')
