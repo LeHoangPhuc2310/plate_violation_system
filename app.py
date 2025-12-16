@@ -4002,7 +4002,7 @@ def serve_violation_file(filename):
                 return response
         
         # Không tìm thấy file
-        print(f"[ERROR] Violation file not found: {filename} (also tried basename: {basename})")
+        # print(f"[ERROR] Violation file not found: {filename} (also tried basename: {basename})")
         return jsonify({"error": f"File not found: {filename}"}), 404
         
     except Exception as e:
