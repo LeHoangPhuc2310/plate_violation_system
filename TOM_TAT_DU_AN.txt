@@ -1,131 +1,131 @@
-TOM TAT DU AN PLATE VIOLATION DETECTION SYSTEM
+TÓM TẮT DỰ ÁN PLATE VIOLATION DETECTION SYSTEM
 ===============================================
 
-Thong tin du an:
-- Ten du an: Plate Violation Detection System
-- Sinh vien: Le Hoang Phuc
+Thông tin dự án:
+- Tên dự án: Plate Violation Detection System
+- Sinh viên: Lê Hoàng Phúc
 - MSSV: 190501014
-- Truong: Dai hoc Binh Duong - Phan hieu Ca Mau
-- Nam: 2024-2025
+- Trường: Đại học Bình Dương - Phân hiệu Cà Mau
+- Năm: 2024-2025
 
-NHUNG DIEU DA LAM DUOC
+NHỮNG ĐIỀU ĐÃ LÀM ĐƯỢC
 ======================
 
-1. HE THONG PHAT HIEN VI PHAM TOC DO
-   - Phat hien xe vi pham toc do real-time
-   - Tinh toan toc do chinh xac dua tren pixel movement
-   - He thong chong trung lap vi pham voi cooldown 5 giay
-   - Luu tru bang chung day du: anh xe, anh bien so, video vi pham 5 giay
+1. HỆ THỐNG PHÁT HIỆN VI PHẠM TỐC ĐỘ
+   - Phát hiện xe vi phạm tốc độ real-time
+   - Tính toán tốc độ chính xác dựa trên pixel movement
+   - Hệ thống chống trùng lặp vi phạm với cooldown 5 giây
+   - Lưu trữ bằng chứng đầy đủ: ảnh xe, ảnh biển số, video vi phạm 5 giây
 
-2. NHAN DIEN BIEN SO XE TU DONG
-   - Su dung FastALPR de nhan dien bien so xe
-   - Do chinh xac tren 90%
-   - Ho tro bien so Viet Nam
-   - Co he thong cache de tang toc do xu ly
-   - Co the su dung Enhanced Plate Detector voi nhieu phuong phap fallback
+2. NHẬN DIỆN BIỂN SỐ XE TỰ ĐỘNG
+   - Sử dụng FastALPR để nhận diện biển số xe
+   - Độ chính xác trên 90%
+   - Hỗ trợ biển số Việt Nam
+   - Có hệ thống cache để tăng tốc độ xử lý
+   - Có thể sử dụng Enhanced Plate Detector với nhiều phương pháp fallback
 
-3. TRACKING DA DOI TUONG
-   - Su dung OC-SORT hoac ByteTrack de track nhieu xe cung luc
-   - Do chinh xac tren 90%
-   - Tracking muot, khong bi mat track khi xe di nhanh
-   - Ho tro track nhieu loai xe: o to, xe may, xe bus, xe tai
+3. TRACKING ĐA ĐỐI TƯỢNG
+   - Sử dụng OC-SORT hoặc ByteTrack để track nhiều xe cùng lúc
+   - Độ chính xác trên 90%
+   - Tracking mượt, không bị mất track khi xe đi nhanh
+   - Hỗ trợ track nhiều loại xe: ô tô, xe máy, xe bus, xe tải
 
-4. KIEN TRUC 7 THREAD
-   - Thread 1: video_thread - Doc frame tu video va push vao queues
-   - Thread 2: detection_worker - YOLO detection, OC-SORT tracking, tinh toc do
-   - Thread 3: alpr_proactive_worker - Background ALPR detection de cache ket qua
-   - Thread 4: alpr_realtime_worker - ALPR realtime khi co violation
-   - Thread 5: best_frame_selector_worker - Chon frame tot nhat tu buffer
-   - Thread 6: violation_worker - Luu database, anh, video vi pham
-   - Thread 7: telegram_worker - Gui thong bao Telegram
-   - Tat ca threads chay song song, khong block nhau
-   - Su dung queue-based architecture de giao tiep giua threads
+4. KIẾN TRÚC 7 THREAD
+   - Thread 1: video_thread - Đọc frame từ video và push vào queues
+   - Thread 2: detection_worker - YOLO detection, OC-SORT tracking, tính tốc độ
+   - Thread 3: alpr_proactive_worker - Background ALPR detection để cache kết quả
+   - Thread 4: alpr_realtime_worker - ALPR realtime khi có violation
+   - Thread 5: best_frame_selector_worker - Chọn frame tốt nhất từ buffer
+   - Thread 6: violation_worker - Lưu database, ảnh, video vi phạm
+   - Thread 7: telegram_worker - Gửi thông báo Telegram
+   - Tất cả threads chạy song song, không block nhau
+   - Sử dụng queue-based architecture để giao tiếp giữa threads
 
-5. HE THONG QUEUE VA BUFFER
-   - 8 queues de giao tiep giua threads
-   - 4 buffers de luu tru frames va du lieu
-   - Queue sizes duoc toi uu de tranh bi day
-   - Buffer cleanup tu dong de tranh memory leak
+5. HỆ THỐNG QUEUE VÀ BUFFER
+   - 8 queues để giao tiếp giữa threads
+   - 4 buffers để lưu trữ frames và dữ liệu
+   - Queue sizes được tối ưu để tránh bị đầy
+   - Buffer cleanup tự động để tránh memory leak
 
-6. XU LY VIDEO
-   - Ho tro xu ly video offline (upload video)
-   - Doc video nhanh nhat co the, khong delay theo FPS
-   - Timestamp chinh xac tu frame number va FPS
-   - Tao video vi pham bang FFmpeg (nhanh) hoac OpenCV (fallback)
-   - Video vi pham 5 giay: 2 giay truoc + 3 giay sau violation
+6. XỬ LÝ VIDEO
+   - Hỗ trợ xử lý video offline (upload video)
+   - Đọc video nhanh nhất có thể, không delay theo FPS
+   - Timestamp chính xác từ frame number và FPS
+   - Tạo video vi phạm bằng FFmpeg (nhanh) hoặc OpenCV (fallback)
+   - Video vi phạm 5 giây: 2 giây trước + 3 giây sau violation
 
-7. LUU TRU DU LIEU
-   - Luu tru theo cau truc thu muc: YYYY/MM/DD/PLATE/
-   - Ten file co format: type_YYYYMMDD_HHMMSS_trackid.ext
-   - Luu vao MySQL database voi day du thong tin
-   - Luu relative path trong database de de serve qua web
+7. LƯU TRỮ DỮ LIỆU
+   - Lưu trữ theo cấu trúc thư mục: YYYY/MM/DD/PLATE/
+   - Tên file có format: type_YYYYMMDD_HHMMSS_trackid.ext
+   - Lưu vào MySQL database với đầy đủ thông tin
+   - Lưu relative path trong database để dễ serve qua web
 
-8. GIAO DIEN WEB
-   - Dashboard real-time voi live video stream
-   - Quan ly vi pham voi bo loc tim kiem
-   - Quan ly chu xe (Admin only)
-   - He thong dang nhap voi phan quyen Admin/Viewer
-   - Responsive design, tuong thich moi thiet bi
-   - Dark mode navigation voi hieu ung gradient
-   - Autocomplete search cho bien so
-   - Health dashboard de monitor system
+8. GIAO DIỆN WEB
+   - Dashboard real-time với live video stream
+   - Quản lý vi phạm với bộ lọc tìm kiếm
+   - Quản lý chủ xe (Admin only)
+   - Hệ thống đăng nhập với phân quyền Admin/Viewer
+   - Responsive design, tương thích mọi thiết bị
+   - Dark mode navigation với hiệu ứng gradient
+   - Autocomplete search cho biển số
+   - Health dashboard để monitor system
 
-9. THONG BAO TELEGRAM
-   - Gui thong bao tu dong khi co vi pham
-   - Gui kem anh xe, anh bien so, video vi pham
-   - Cap nhat status violation trong database
-   - Co retry logic neu gui that bai
+9. THÔNG BÁO TELEGRAM
+   - Gửi thông báo tự động khi có vi phạm
+   - Gửi kèm ảnh xe, ảnh biển số, video vi phạm
+   - Cập nhật status violation trong database
+   - Có retry logic nếu gửi thất bại
 
-10. TOI UU HIEU SUAT
-    - Su dung GPU neu co (CUDA hoac MPS)
-    - Co the chay tren CPU nhung cham hon
-    - Detection frequency co the dieu chinh
-    - Detection scale co the dieu chinh de giam tai
-    - Queue sizes co the dieu chinh
-    - Buffer cleanup tu dong
+10. TỐI ƯU HIỆU SUẤT
+    - Sử dụng GPU nếu có (CUDA hoặc MPS)
+    - Có thể chạy trên CPU nhưng chậm hơn
+    - Detection frequency có thể điều chỉnh
+    - Detection scale có thể điều chỉnh để giảm tải
+    - Queue sizes có thể điều chỉnh
+    - Buffer cleanup tự động
 
 11. DOCKER SUPPORT
     - Dockerfile cho CPU version
     - Dockerfile cho GPU version
-    - Docker Compose de chay ca MySQL va Flask app
-    - Deploy len AWS EC2 duoc
+    - Docker Compose để chạy cả MySQL và Flask app
+    - Deploy lên AWS EC2 được
 
 12. DATABASE
     - MySQL 8.0
     - 3 tables: users, vehicle_owner, violations
-    - Co index de tang toc do query
-    - Ho tro UTF-8 cho tieng Viet
-    - Co init.sql de khoi tao database
+    - Có index để tăng tốc độ query
+    - Hỗ trợ UTF-8 cho tiếng Việt
+    - Có init.sql để khởi tạo database
 
-13. MODULES VA CLASSES
-    - CombinedDetector: Vehicle detection va tracking
-    - SpeedTracker: Tinh toc do chinh xac
-    - PlateDetector: Nhan dien bien so xe
-    - EnhancedPlateDetector: Nhan dien bien so voi nhieu phuong phap
-    - OfflineVideoReader: Doc video offline nhanh
-    - ViolationSaver: Luu tru bang chung vi pham
+13. MODULES VÀ CLASSES
+    - CombinedDetector: Vehicle detection và tracking
+    - SpeedTracker: Tính tốc độ chính xác
+    - PlateDetector: Nhận diện biển số xe
+    - EnhancedPlateDetector: Nhận diện biển số với nhiều phương pháp
+    - OfflineVideoReader: Đọc video offline nhanh
+    - ViolationSaver: Lưu trữ bằng chứng vi phạm
 
 14. ERROR HANDLING
-    - Try-catch o nhieu noi de tranh crash
-    - Logging chi tiet de debug
-    - Fallback mechanisms khi co loi
-    - Graceful degradation khi thieu dependencies
+    - Try-catch ở nhiều nơi để tránh crash
+    - Logging chi tiết để debug
+    - Fallback mechanisms khi có lỗi
+    - Graceful degradation khi thiếu dependencies
 
 15. SECURITY
-    - Password hashing voi werkzeug
+    - Password hashing với werkzeug
     - Session management
-    - Phan quyen Admin/Viewer
-    - SQL injection prevention voi parameterized queries
+    - Phân quyền Admin/Viewer
+    - SQL injection prevention với parameterized queries
 
 16. DOCUMENTATION
-    - README chuyen nghiep voi badges va icons
+    - README chuyên nghiệp với badges và icons
     - API documentation
     - Troubleshooting guide
     - Installation guide
     - Docker deployment guide
     - AWS deployment guide
 
-CONG NGHE SU DUNG
+CÔNG NGHỆ SỬ DỤNG
 =================
 
 Backend:
@@ -136,7 +136,7 @@ Backend:
 
 AI/ML:
 - YOLOv11n (ultralytics 8.1.0) cho vehicle detection
-- OC-SORT hoac ByteTrack cho multi-object tracking
+- OC-SORT hoặc ByteTrack cho multi-object tracking
 - FastALPR 0.3.0 cho license plate recognition
 
 Frontend:
@@ -149,41 +149,40 @@ Video Processing:
 - OpenCV 4.8.1.78
 - FFmpeg (optional, preferred)
 
-HIEU SUAT
+HIỆU SUẤT
 =========
 
-Vehicle Detection: Tren 95% do chinh xac
-License Plate Detection: Tren 90% do chinh xac
-Plate Recognition: Tren 85% do chinh xac (bien so Viet Nam)
-Speed Calculation: Sai so ±5 km/h
+Vehicle Detection: Trên 95% độ chính xác
+License Plate Detection: Trên 90% độ chính xác
+Plate Recognition: Trên 85% độ chính xác (biển số Việt Nam)
+Speed Calculation: Sai số ±5 km/h
 
 YOLOv11n FPS: 50-100 FPS (GPU), 5-15 FPS (CPU)
 OC-SORT Tracking: ~200 FPS
 FastALPR: 30-50 FPS
-Overall System: 10-30 FPS (phu thuoc hardware)
+Overall System: 10-30 FPS (phụ thuộc hardware)
 
-CAC TINH NANG DAC BIET
+CÁC TÍNH NĂNG ĐẶC BIỆT
 ======================
 
-1. Dual-stream architecture: Clean stream (khong co bbox) va detection stream (co bbox)
-2. ALPR proactive worker: Detect bien so truoc khi co violation de cache ket qua
-3. Best frame selector: Chon frame tot nhat tu buffer dua tren blur, size, position
-4. Organized folder structure: Luu tru theo YYYY/MM/DD/PLATE/ de de quan ly
-5. Video creation: FFmpeg voi OpenCV fallback
-6. Anti-duplicate system: Cooldown 5 giay de tranh trung lap vi pham
+1. Dual-stream architecture: Clean stream (không có bbox) và detection stream (có bbox)
+2. ALPR proactive worker: Detect biển số trước khi có violation để cache kết quả
+3. Best frame selector: Chọn frame tốt nhất từ buffer dựa trên blur, size, position
+4. Organized folder structure: Lưu trữ theo YYYY/MM/DD/PLATE/ để dễ quản lý
+5. Video creation: FFmpeg với OpenCV fallback
+6. Anti-duplicate system: Cooldown 5 giây để tránh trùng lặp vi phạm
 7. Health dashboard: Monitor system health, thread status, queue sizes
-8. OfflineVideoReader: Doc video nhanh nhat co the, khong delay theo FPS
+8. OfflineVideoReader: Đọc video nhanh nhất có thể, không delay theo FPS
 
-TINH TRANG DU AN
+TÌNH TRẠNG DỰ ÁN
 ================
 
-Hoan thanh: 100%
-- Tat ca tinh nang chinh da duoc trien khai
-- He thong chay on dinh
-- Code duoc toi uu
-- Documentation day du
+Hoàn thành: 100%
+- Tất cả tính năng chính đã được triển khai
+- Hệ thống chạy ổn định
+- Code được tối ưu
+- Documentation đầy đủ
 - Docker support
-- GitHub repository da duoc setup
+- GitHub repository đã được setup
 
-NGAY CAP NHAT CUOI: 2024-12-17
-
+NGÀY CẬP NHẬT CUỐI: 2024-12-17
