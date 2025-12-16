@@ -5,8 +5,8 @@
 ### <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Oncoming%20Automobile.gif" width="40" height="40" /> AI-Powered Traffic Violation Detection System <img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Oncoming%20Automobile.gif" width="40" height="40" />
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Flask](https://img.shields.io/badge/Flask-3.0.0-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
-[![YOLOv11](https://img.shields.io/badge/YOLOv11-Latest-00D9FF?style=for-the-badge&logo=yolo&logoColor=white)](https://github.com/ultralytics/ultralytics)
+[![Flask](https://img.shields.io/badge/Flask-2.3.3-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![YOLOv11](https://img.shields.io/badge/YOLOv11-8.1.0-00D9FF?style=for-the-badge&logo=yolo&logoColor=white)](https://github.com/ultralytics/ultralytics)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge&logo=mit&logoColor=white)](LICENSE)
@@ -103,10 +103,12 @@ Lê Hoàng Phúc
 - ✅ **Phát hiện vi phạm tốc độ** real-time
 - ✅ **Tracking đa đối tượng** (OC-SORT/ByteTrack)
 - ✅ **Tính toán tốc độ chính xác** dựa trên pixel movement
-- ✅ **Lưu trữ bằng chứng** (ảnh xe, ảnh biển số, video vi phạm)
+- ✅ **Lưu trữ bằng chứng** (ảnh xe, ảnh biển số, video vi phạm 5s)
 - ✅ **Gửi thông báo Telegram** tự động
 - ✅ **Quản lý database** MySQL với full CRUD
 - ✅ **Hệ thống chống trùng lặp** vi phạm (cooldown 5s)
+- ✅ **7-thread architecture** tối ưu cho real-time processing
+- ✅ **Dual-stream architecture** (clean stream + detection stream)
 
 </td>
 <td width="50%">
@@ -121,106 +123,108 @@ Lê Hoàng Phúc
 - 🎭 **Dark mode navigation** với hiệu ứng gradient
 - 🔍 **Autocomplete search** cho biển số
 - 📈 **Statistics dashboard** với charts
+- 🏥 **Health dashboard** để monitor system
 
 </td>
 </tr>
 </table>
 
-### 🎬 Demo Video
-
-<div align="center">
-
-![Demo](https://img.shields.io/badge/📹-Watch_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white)
-
-*Video demo sẽ được thêm vào sau*
-
-</div>
-
 ---
 
 ## 🏗️ Kiến trúc hệ thống
 
-### 6-Thread Architecture
+### 7-Thread Architecture
+
+Hệ thống sử dụng **7 core threads** chạy song song để xử lý real-time:
 
 <div align="center">
 
-```mermaid
-graph TB
-    A[📤 Video Upload] --> B[🎬 Thread 1: Video Reader]
-    B --> C[🔍 Thread 2: Detection Worker]
-    C --> D[🔤 Thread 3: ALPR Worker]
-    D --> E[🖼️ Thread 4: Best Frame Selector]
-    E --> F[💾 Thread 5: Violation Worker]
-    F --> G[📱 Thread 6: Telegram Worker]
-    
-    style A fill:#FF6B6B
-    style B fill:#4ECDC4
-    style C fill:#95E1D3
-    style D fill:#F38181
-    style E fill:#AA96DA
-    style F fill:#FCBAD3
-    style G fill:#FFFFD2
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🎬 THREAD 1: video_thread()                                 │
+│  - Đọc frame từ video (OfflineVideoReader)                   │
+│  - Push vào detection_queue (mỗi N frame)                    │
+│  - Push vào stream_queue_clean (cho web stream)              │
+│  - Push vào alpr_proactive_queue (background ALPR)           │
+│  - Buffer frames vào original_frame_buffer                   │
+└──────────────┬──────────────────────────────────────────────┘
+               │ detection_queue (deque)
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  🔍 THREAD 2: detection_worker()                            │
+│  - YOLOv11n: Detect vehicles                                 │
+│  - OC-SORT/ByteTrack: Track objects                          │
+│  - SpeedTracker: Calculate speed                             │
+│  - Detect violations (speed > speed_limit)                   │
+│  - Push vào alpr_realtime_queue khi có violation            │
+└──────────────┬──────────────────────────────────────────────┘
+               │ alpr_realtime_queue (Queue, maxsize=30)
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  🔤 THREAD 4: alpr_realtime_worker()                         │
+│  - FastALPR: Detect license plates                           │
+│  - Validate plate format (Vietnamese)                       │
+│  - Use cached plate từ alpr_proactive_cache (nếu có)        │
+│  - Push vào best_frame_queue                                │
+└──────────────┬──────────────────────────────────────────────┘
+               │ best_frame_queue (Queue, maxsize=30)
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  🖼️ THREAD 5: best_frame_selector_worker()                  │
+│  - Chọn best frame từ violation_frame_buffer                │
+│  - Aggregate plate detections                               │
+│  - Add violation_timestamp & violation_frame                │
+│  - Push vào violation_queue                                 │
+└──────────────┬──────────────────────────────────────────────┘
+               │ violation_queue (Queue, maxsize=30)
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  💾 THREAD 6: violation_worker()                             │
+│  - Save to MySQL database                                    │
+│  - Create violation videos (FFmpeg/OpenCV fallback)         │
+│  - Save vehicle & plate images                               │
+│  - Anti-duplicate check (5s cooldown)                       │
+│  - Push vào telegram_queue                                  │
+└──────────────┬──────────────────────────────────────────────┘
+               │ telegram_queue (Queue, maxsize=100)
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│  📱 THREAD 7: telegram_worker()                             │
+│  - Send notifications to Telegram                           │
+│  - Update violation status trong database                   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  🔤 THREAD 3: alpr_proactive_worker() (Parallel)             │
+│  - Background ALPR detection                                │
+│  - Cache results vào alpr_proactive_cache                   │
+│  - Chạy song song với detection worker                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 </div>
 
-### 📊 Flow Diagram
+### Queue Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    📤 VIDEO UPLOAD (Flask)                  │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  🎬 THREAD 1: Video Thread                                    │
-│  • Đọc frame từ video                                        │
-│  • Push vào detection_queue                                  │
-│  • Buffer frames cho active tracks                            │
-└────────────────────────┬────────────────────────────────────┘
-                         │ detection_queue
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  🔍 THREAD 2: Detection Worker                               │
-│  • YOLOv11n: Detect vehicles                                 │
-│  • OC-SORT: Track objects                                    │
-│  • SpeedTracker: Calculate speed                             │
-│  • Detect violations (> speed_limit)                        │
-└────────────────────────┬────────────────────────────────────┘
-                         │ alpr_realtime_queue
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  🔤 THREAD 3: ALPR Worker (Real-time)                        │
-│  • FastALPR: Detect license plates                          │
-│  • Validate plate format (Vietnamese)                       │
-│  • Aggregate multiple detections                             │
-└────────────────────────┬────────────────────────────────────┘
-                         │ best_frame_queue
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  🖼️ THREAD 4: Best Frame Selector                            │
-│  • Select best quality frame                                 │
-│  • Aggregate plate detections                                │
-│  • Add violation timestamp & frame number                    │
-└────────────────────────┬────────────────────────────────────┘
-                         │ violation_queue
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  💾 THREAD 5: Violation Worker                                │
-│  • Save to MySQL database                                    │
-│  • Create violation videos (FFmpeg/OpenCV)                   │
-│  • Save vehicle & plate images                               │
-│  • Anti-duplicate check (5s cooldown)                        │
-└────────────────────────┬────────────────────────────────────┘
-                         │ telegram_queue
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  📱 THREAD 6: Telegram Worker                                │
-│  • Send notifications to Telegram                           │
-│  • Update violation status                                   │
-│  • Handle retry logic                                        │
-└─────────────────────────────────────────────────────────────┘
-```
+| Queue | Type | Max Size | Purpose |
+|:-----:|:----:|:--------:|:--------|
+| `detection_queue` | deque | Dynamic | Frames từ video thread → detection worker |
+| `stream_queue_clean` | Queue | 60 | Clean frames cho web stream (không có bbox) |
+| `stream_queue` | Queue | 30 | Admin frames với bbox (optional) |
+| `alpr_proactive_queue` | Queue | 50 | Frames cho background ALPR |
+| `alpr_realtime_queue` | Queue | 30 | Violation data → ALPR realtime worker |
+| `best_frame_queue` | Queue | 30 | ALPR results → best frame selector |
+| `violation_queue` | Queue | 30 | Best frame data → violation worker |
+| `telegram_queue` | Queue | 100 | Violation data → telegram worker |
+
+### Buffer Architecture
+
+| Buffer | Type | Purpose |
+|:------:|:----:|:--------|
+| `original_frame_buffer` | dict | Lưu original frames cho mỗi track_id |
+| `admin_frame_buffer` | dict | Lưu admin frames với bbox |
+| `violation_frame_buffer` | dict | Lưu frames xung quanh violation (150 frames) |
+| `alpr_proactive_cache` | dict | Cache ALPR results từ proactive worker |
 
 ---
 
@@ -233,9 +237,9 @@ graph TB
 | Category | Technology | Version |
 |:--------:|:----------:|:-------:|
 | 🐍 **Language** | Python | 3.10+ |
-| 🌐 **Framework** | Flask | 3.0.0 |
+| 🌐 **Framework** | Flask | 2.3.3 |
 | 🗄️ **Database** | MySQL | 8.0 |
-| 🧠 **ML Framework** | PyTorch | 2.0+ |
+| 🧠 **ML Framework** | PyTorch | 2.1.0 |
 | 📦 **Package Manager** | pip | Latest |
 
 </div>
@@ -244,12 +248,12 @@ graph TB
 
 <div align="center">
 
-| Model | Purpose | Accuracy |
-|:-----:|:-------:|:--------:|
-| 🎯 **YOLOv11n** | Vehicle Detection | >95% |
-| 🔄 **OC-SORT** | Multi-object Tracking | >90% |
-| 🔤 **FastALPR** | License Plate Recognition | >85% |
-| ⚡ **ByteTrack** | Fallback Tracker | >88% |
+| Model | Purpose | Accuracy | Version |
+|:-----:|:-------:|:--------:|:-------:|
+| 🎯 **YOLOv11n** | Vehicle Detection | >95% | ultralytics 8.1.0 |
+| 🔄 **OC-SORT** | Multi-object Tracking | >90% | Latest |
+| 🔤 **FastALPR** | License Plate Recognition | >85% | 0.3.0 |
+| ⚡ **ByteTrack** | Fallback Tracker | >88% | Latest |
 
 </div>
 
@@ -257,15 +261,20 @@ graph TB
 
 <div align="center">
 
-| Technology | Purpose |
-|:---------:|:-------:|
-| 🎨 **Bootstrap 4.6.2** | UI Framework |
-| 🎭 **Font Awesome 6.5.1** | Icons |
-| 📝 **Inter Font** | Typography |
-| ⚡ **jQuery** | DOM Manipulation |
-| 📊 **Chart.js** | Data Visualization |
+| Technology | Purpose | Version |
+|:---------:|:-------:|:-------:|
+| 🎨 **Bootstrap** | UI Framework | 4.6.2 |
+| 🎭 **Font Awesome** | Icons | 6.5.1 |
+| 📝 **Inter Font** | Typography | Latest |
+| ⚡ **jQuery** | DOM Manipulation | 3.6.0 |
+| 📊 **Chart.js** | Data Visualization | Latest |
 
 </div>
+
+### Video Processing
+
+- **FFmpeg** (preferred): Direct stream copy, fast & perfect quality
+- **OpenCV** (fallback): Frame-by-frame extraction nếu FFmpeg không available
 
 ---
 
@@ -282,6 +291,7 @@ graph TB
 | 💾 **RAM** | 8GB (khuyến nghị 16GB) |
 | 💿 **Storage** | 10GB free space |
 | 🐍 **Python** | 3.10+ |
+| 🗄️ **MySQL** | 8.0+ |
 
 </div>
 
@@ -297,6 +307,10 @@ graph TB
 | 🔧 **cuDNN** | 8.x |
 
 </div>
+
+### Optional
+
+- **FFmpeg**: Để tạo video vi phạm nhanh hơn (fallback sang OpenCV nếu không có)
 
 ---
 
@@ -381,7 +395,24 @@ TELEGRAM_BOT_TOKEN = "your_bot_token_here"
 TELEGRAM_CHAT_ID = "your_chat_id_here"
 ```
 
-#### 6️⃣ Run Application
+#### 6️⃣ Install FFmpeg (Optional, recommended)
+
+**Windows:**
+```bash
+choco install ffmpeg
+```
+
+**Linux:**
+```bash
+sudo apt install ffmpeg
+```
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+#### 7️⃣ Run Application
 
 ```bash
 python app.py
@@ -414,27 +445,36 @@ Truy cập: **http://localhost:5000**
 - Click **"Upload Video"** trên Dashboard
 - Chọn file video (MP4, AVI, MOV)
 - Click **"Upload"** để bắt đầu xử lý
+- Video sẽ được xử lý real-time
 
 #### 3️⃣ Xem Live Stream
 
 - Video sẽ hiển thị real-time với bounding boxes
 - Thông tin tracking và tốc độ hiển thị trên mỗi xe
 - Violations được highlight màu đỏ
+- Stream clean (không có bbox) cũng có sẵn
 
 #### 4️⃣ Xem Vi Phạm
 
 - Click **"Xem vi phạm"** trên navbar
 - Sử dụng bộ lọc để tìm kiếm:
-  - Biển số xe
+  - Biển số xe (với autocomplete)
   - Khoảng thời gian
   - Mức vượt tốc độ
-- Click vào violation để xem chi tiết
+- Click vào violation để xem chi tiết (ảnh, video)
 
 #### 5️⃣ Quản lý Chủ Xe (Admin only)
 
 - Click **"Quản trị"** trên navbar
 - Thêm/Sửa/Xóa thông tin chủ xe
 - Tìm kiếm theo biển số, tên, địa chỉ, SĐT
+
+#### 6️⃣ Health Dashboard
+
+- Monitor system health
+- Xem thread status
+- Xem queue sizes
+- Xem system metrics
 
 </details>
 
@@ -549,8 +589,10 @@ docker-compose up -d
 | Method | Endpoint | Description |
 |:------:|:--------:|:-----------|
 | `POST` | `/upload` | Upload video for processing |
-| `GET` | `/video_feed` | Get MJPEG video stream |
+| `GET` | `/video_feed` | Get MJPEG video stream (clean) |
+| `GET` | `/video_feed_admin` | Get MJPEG video stream with bbox |
 | `POST` | `/stop_camera` | Stop video processing |
+| `POST` | `/stop_video_upload` | Stop video upload mode |
 
 ### 📋 Violation Management Endpoints
 
@@ -558,6 +600,7 @@ docker-compose up -d
 |:------:|:--------:|:-----------|
 | `GET` | `/history` | Get violation list with filters |
 | `GET` | `/autocomplete` | Autocomplete license plate search |
+| `GET` | `/violations/<path:filename>` | Serve violation files (images/videos) |
 
 ### 👨‍💼 Admin Endpoints (Admin only)
 
@@ -566,6 +609,13 @@ docker-compose up -d
 | `GET` | `/admin/vehicles` | Get vehicle owner list |
 | `POST` | `/edit_owner/<plate>` | Update vehicle owner information |
 | `GET` | `/delete/<plate>` | Delete vehicle owner |
+
+### 🏥 Health & Monitoring
+
+| Method | Endpoint | Description |
+|:------:|:--------:|:-----------|
+| `GET` | `/health` | Health dashboard |
+| `GET` | `/health_dashboard` | Health dashboard page |
 
 ---
 
@@ -581,24 +631,42 @@ docker-compose up -d
 - Kiểm tra browser console (F12) để xem lỗi
 - Đảm bảo `/video_feed` endpoint đang hoạt động
 - Thử refresh trang (Ctrl+F5)
+- Kiểm tra `stream_queue_clean` có frames không
 
 #### Detection chậm
 
 - Sử dụng GPU nếu có thể
 - Giảm resolution video input
 - Tăng `DETECTION_SKIP_FRAMES` trong app.py
+- Kiểm tra `detection_queue` size
 
 #### Database connection error
 
 - Kiểm tra MySQL service đang chạy
 - Verify database credentials trong app.py
 - Đảm bảo database `plate_violation` đã được tạo
+- Kiểm tra connection string
 
 #### Telegram không gửi được
 
 - Kiểm tra Bot Token và Chat ID
 - Verify bot đã được start (@BotFather)
 - Kiểm tra internet connection
+- Kiểm tra `telegram_queue` size
+
+#### Video không được tạo
+
+- Kiểm tra FFmpeg đã cài đặt chưa
+- Kiểm tra `violation_timestamp` và `violation_frame` có giá trị không
+- Xem logs để debug: `[VIDEO DEBUG]` và `[BEST FRAME DEBUG]`
+- Kiểm tra `current_video_path` có đúng không
+
+#### Thread không chạy
+
+- Kiểm tra logs để xem thread nào không start
+- Đảm bảo `camera_running = True`
+- Kiểm tra queue không bị full
+- Restart app
 
 </details>
 
@@ -616,18 +684,27 @@ docker-compose up -d
 - Sử dụng YOLOv11n (nano) thay vì YOLOv11s/m/l
 - Tăng `DETECTION_SKIP_FRAMES` để giảm số frame xử lý
 - Giảm resolution video input
+- Tăng queue sizes nếu cần
 
 #### GPU Optimization
 
 - Cài đặt CUDA 11.8 và cuDNN 8.x
 - Sử dụng PyTorch với CUDA support
 - Tăng batch size nếu VRAM đủ lớn
+- Sử dụng mixed precision training
 
 #### Database Optimization
 
 - Tạo index cho các cột thường query (plate, time)
 - Sử dụng connection pooling
 - Định kỳ optimize tables
+- Sử dụng prepared statements
+
+#### Queue Optimization
+
+- Tăng queue maxsize nếu bị full thường xuyên
+- Monitor queue sizes trong health dashboard
+- Điều chỉnh thread sleep times
 
 </details>
 
@@ -645,6 +722,7 @@ docker-compose up -d
 | **OC-SORT Tracking** | ~200 FPS |
 | **FastALPR** | ~30-50 FPS |
 | **Overall System** | ~10-30 FPS (depends on hardware) |
+| **Video Reading** | >1000 FPS (offline video, no delay) |
 
 </div>
 
@@ -658,6 +736,19 @@ docker-compose up -d
 | **License Plate Detection** | >90% |
 | **Plate Recognition** | >85% (Vietnamese plates) |
 | **Speed Calculation** | ±5 km/h |
+
+</div>
+
+### 🧵 Thread Metrics
+
+<div align="center">
+
+| Metric | Value |
+|:------:|:-----:|
+| **Core Threads** | 7 threads |
+| **Max Concurrent Threads** | ~10 threads (with temporary threads) |
+| **Queue Sizes** | 30-100 (configurable) |
+| **Buffer Sizes** | 150 frames per violation |
 
 </div>
 
@@ -679,7 +770,9 @@ Contributions are welcome! Please follow these steps:
 
 ### 🎉 Version 2.0.0 (2024-12-16)
 
-- ✅ Implemented 6-thread architecture for better performance
+- ✅ Implemented **7-thread architecture** for better performance
+- ✅ Added **dual-stream architecture** (clean + detection stream)
+- ✅ Added **ALPR proactive worker** for background plate detection
 - ✅ Added anti-duplicate violation system (5s cooldown)
 - ✅ Improved UI/UX with professional design
 - ✅ Added Docker and Docker Compose support
@@ -688,6 +781,8 @@ Contributions are welcome! Please follow these steps:
 - ✅ Optimized ALPR processing pipeline
 - ✅ Fixed video creation bug (FFmpeg/OpenCV fallback)
 - ✅ Added organized folder structure (YYYY/MM/DD/PLATE)
+- ✅ Added health dashboard for monitoring
+- ✅ Improved error handling and logging
 
 ### 🎉 Version 1.0.0 (2024-11-01)
 
