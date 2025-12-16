@@ -96,3 +96,4 @@ violations/
 # IDE files
 .cursor/
 .idea/
+.claude/
