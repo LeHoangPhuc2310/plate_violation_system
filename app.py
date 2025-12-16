@@ -2111,8 +2111,8 @@ def violation_worker():
             video_clean_path = None
 
             # DEBUG: Check current_video_path
-            print(f"[VIDEO DEBUG] current_video_path = {current_video_path}")
-            print(f"[VIDEO DEBUG] exists = {os.path.exists(current_video_path) if current_video_path else False}")
+            # print(f"[VIDEO DEBUG] current_video_path = {current_video_path}")
+            # print(f"[VIDEO DEBUG] exists = {os.path.exists(current_video_path) if current_video_path else False}")
 
             if current_video_path and os.path.exists(current_video_path):
                 try:
@@ -2324,26 +2324,17 @@ def violation_worker():
             normalized_plate = normalize_plate(plate) if plate else None
             is_plate_valid = normalized_plate and is_valid_plate(normalized_plate)
 
-            # FIX: Chỉ kiểm tra cooldown SAU KHI đã validate plate
-            # Nếu plate không hợp lệ, vẫn cho phép lưu (dùng track_id làm key)
-            # DEBUG: Log để kiểm tra
-            print(f"[VIOLATION THREAD] 🔍 Checking violation: track_id={track_id}, plate={plate}, is_valid={is_plate_valid}, speed={speed:.1f}")
-            
-            if is_plate_valid:
-                # Có plate hợp lệ: dùng plate làm key
-                can_save = can_save_violation(track_id, plate)
-                print(f"[VIOLATION THREAD] 🔍 can_save_violation(plate={plate}) = {can_save}")
-                if not can_save:
-                    print(f"[VIOLATION THREAD] ⏳ Bỏ qua vi phạm trùng lặp: track_id={track_id}, plate={plate}")
-                    continue
-            else:
-                # Không có plate hợp lệ: dùng track_id làm key, nhưng vẫn cho phép lưu
-                can_save = can_save_violation(track_id, None)
-                print(f"[VIOLATION THREAD] 🔍 can_save_violation(track_id={track_id}, plate=None) = {can_save}")
-                if not can_save:
-                    print(f"[VIOLATION THREAD] ⏳ Bỏ qua vi phạm trùng lặp: track_id={track_id} (không có plate hợp lệ)")
-                    continue
-                print(f"[VIOLATION THREAD] ⚠️ Biển số không hợp lệ '{plate}' (normalized: {normalized_plate}), nhưng vẫn lưu vi phạm với track_id")
+            # SKIP violations without valid plate number (UNKNOWN vehicles)
+            if not is_plate_valid:
+                # print(f"[VIOLATION THREAD] ⏭️ Skipping violation without valid plate: track_id={track_id}")
+                continue
+
+            # Check cooldown for valid plates
+            can_save = can_save_violation(track_id, plate)
+            # print(f"[VIOLATION THREAD] can_save_violation(plate={plate}) = {can_save}")
+            if not can_save:
+                # print(f"[VIOLATION THREAD] ⏳ Skip duplicate: track_id={track_id}, plate={plate}")
+                continue
 
             # Generate organized folder structure for images: YYYY/MM/DD/plate/
             from datetime import datetime
@@ -3884,8 +3875,8 @@ def serve_violation_file(filename):
     - static/violation_videos/ (videos)
     """
     try:
-        # Debug: Log incoming request
-        print(f"[SERVE FILE] Request: /violations/{filename}")
+        # Debug: Log incoming request (commented to reduce logs)
+        # print(f"[SERVE FILE] Request: /violations/{filename}")
         # Thử tìm trong thư mục violations/ trước (cấu trúc cũ: violations/YYYY-MM-DD/PLATE/file)
         violations_path = os.path.join("violations", filename)
         if os.path.exists(violations_path):
@@ -3908,10 +3899,10 @@ def serve_violation_file(filename):
         # Thử tìm trong static/violation_videos/ (videos)
         # Strip 'violation_videos/' prefix if present to avoid duplication
         clean_filename = filename.replace('violation_videos/', '').replace('violation_videos\\', '')
-        if clean_filename != filename:
-            print(f"[SERVE FILE] Stripped prefix: '{filename}' → '{clean_filename}'")
+        # if clean_filename != filename:
+        #     print(f"[SERVE FILE] Stripped prefix: '{filename}' → '{clean_filename}'")
         video_path = os.path.join("static", "violation_videos", clean_filename)
-        print(f"[SERVE FILE] Checking video path: {video_path} (exists: {os.path.exists(video_path)})")
+        # print(f"[SERVE FILE] Checking video path: {video_path} (exists: {os.path.exists(video_path)})")
         if os.path.exists(video_path):
             # Xác định MIME type cho video
             ext = os.path.splitext(filename)[1].lower()
