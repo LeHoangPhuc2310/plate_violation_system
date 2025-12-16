@@ -8,13 +8,16 @@ import os
 import re
 import requests
 import threading
-from collections import deque
+from collections import deque, Counter
 import queue
 from datetime import datetime, timezone, timedelta
 
 from combined_detector import CombinedDetector
 from speed_tracker import SpeedTracker
 from detector import PlateDetector
+from video_reader import OfflineVideoReader
+from violation_saver import save_violation_evidence
+
 # Thử import Enhanced Plate Detector (có fallback)
 try:
     from enhanced_plate_detector import EnhancedPlateDetector
@@ -23,9 +26,6 @@ except ImportError:
     ENHANCED_DETECTOR_AVAILABLE = False
     print(">>> ⚠️ Enhanced Plate Detector not available - using standard PlateDetector")
 
-# ======================
-# TIMEZONE CONFIG (Vietnam UTC+7)
-# ======================
 VIETNAM_TZ = timezone(timedelta(hours=7))
 
 def get_vietnam_time():
@@ -51,30 +51,19 @@ def format_vietnam_time(dt=None):
             dt = dt.astimezone(VIETNAM_TZ)
     return dt.strftime('%d/%m/%Y %H:%M:%S')
 
-# ======================
-# FLASK APP
-# ======================
 app = Flask(__name__)
-app.secret_key = "your-secret-key-123"  # đổi nếu cần
-
-
-# ======================
-# DATABASE CONFIG
-# ======================
-# Sử dụng environment variables cho AWS deployment, fallback về local
+app.secret_key = "your-secret-key-123"
 
 app.config['MYSQL_HOST'] = os.getenv('MYSQL_HOST', 'localhost')
 app.config['MYSQL_USER'] = os.getenv('MYSQL_USER', 'root')
 app.config['MYSQL_PASSWORD'] = os.getenv('MYSQL_PASSWORD', '')
 app.config['MYSQL_DB'] = os.getenv('MYSQL_DB', 'plate_violation')
 app.config['MYSQL_CURSORCLASS'] = 'DictCursor'
-app.config['MYSQL_CONNECT_TIMEOUT'] = 5  # TỐI ƯU: Giảm timeout từ 10 xuống 5 giây
-# Cho phép upload video lớn (tối đa 500MB)
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
+app.config['MYSQL_CONNECT_TIMEOUT'] = 5
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 mysql = MySQL(app)
 
-# Test database connection - NON-BLOCKING (trong thread riêng)
 def test_db_connection_async():
     """Test database connection trong thread riêng để không block startup"""
     time.sleep(1)  # Đợi 1 giây để app khởi động xong
@@ -95,13 +84,8 @@ def test_db_connection_async():
         print(f"   Database: {app.config['MYSQL_DB']}")
         print("   App will continue but database features may not work")
 
-# Khởi động thread test DB (non-blocking)
 db_test_thread = threading.Thread(target=test_db_connection_async, daemon=True)
 db_test_thread.start()
-
-# ======================
-# GLOBAL VAR
-# ======================
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs("static/uploads", exist_ok=True)
@@ -109,47 +93,49 @@ os.makedirs("static/plate_images", exist_ok=True)
 os.makedirs("static/violation_videos", exist_ok=True)
 
 cap = None
+current_video_path = None
 camera_running = False
 last_id = 0
 video_fps = 30
 is_video_upload_mode = False
 cap_lock = threading.Lock()
 
-# ======================
-# CHỐNG TRÙNG LẶP VI PHẠM
-# ======================
-# Dictionary lưu thời gian vi phạm gần nhất của mỗi track_id
-# Format: {track_id: timestamp}
 last_violation_time = {}
-VIOLATION_COOLDOWN = 10  # Chỉ lưu 1 vi phạm/xe trong 10 giây
+VIOLATION_COOLDOWN = 5  # Tăng lên 15 giây để tránh trùng vi phạm
 
-def can_save_violation(track_id):
+# Track active vehicles to buffer frames
+active_tracks = {}  # track_id -> last_seen_time
+active_tracks_lock = threading.Lock()
+TRACK_TIMEOUT = 10.0  # Remove tracks không thấy sau 10s
+
+def can_save_violation(track_id, plate=None):
     """
-    Kiểm tra xem có thể lưu vi phạm cho track_id này không
-    Chỉ cho phép lưu nếu đã qua VIOLATION_COOLDOWN giây kể từ vi phạm trước
+    Kiểm tra có thể lưu vi phạm cho track_id này không
+    Sử dụng plate làm key chính để tránh trùng vi phạm cho cùng một biển số
     """
     current_time = time.time()
 
-    if track_id not in last_violation_time:
-        # Chưa có vi phạm nào, cho phép lưu
-        last_violation_time[track_id] = current_time
+    # Ưu tiên dùng plate làm key (cùng biển số = cùng xe)
+    if plate:
+        plate_normalized = normalize_plate(plate) if plate else None
+        if plate_normalized:
+            cooldown_key = f"plate_{plate_normalized}"
+        else:
+            cooldown_key = f"track_{track_id}"
+    else:
+        cooldown_key = f"track_{track_id}"
+
+    if cooldown_key not in last_violation_time:
+        last_violation_time[cooldown_key] = current_time
         return True
 
-    # Kiểm tra thời gian từ vi phạm trước
-    time_since_last = current_time - last_violation_time[track_id]
-
+    time_since_last = current_time - last_violation_time[cooldown_key]
     if time_since_last >= VIOLATION_COOLDOWN:
-        # Đã qua cooldown, cho phép lưu
-        last_violation_time[track_id] = current_time
+        last_violation_time[cooldown_key] = current_time
         return True
     else:
-        # Còn trong cooldown, không cho phép lưu
-        print(f"[ANTI-DUPLICATE] ⏳ Track {track_id} đã vi phạm {time_since_last:.1f}s trước, bỏ qua (cooldown: {VIOLATION_COOLDOWN}s)")
+        print(f"[ANTI-DUPLICATE] ⏳ {'Biển số ' + plate if plate else 'Track ' + str(track_id)} đã vi phạm {time_since_last:.1f}s trước, bỏ qua (cooldown: {VIOLATION_COOLDOWN}s)")
         return False
-
-# ======================
-# HELPER FUNCTIONS - IMAGE PROCESSING
-# ======================
 def calculate_blur_score(image):
     """Tính blur score bằng Laplacian variance"""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -172,10 +158,6 @@ def sharpen_image(image):
 def denoise_image(image):
     """Denoise image"""
     return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
-
-def normalize_plate(plate_text):
-    """Normalize plate text"""
-    return re.sub(r'[^A-Z0-9]', '', plate_text.upper())
 
 def is_valid_vietnamese_plate(plate_text):
     """Validate Vietnamese plate format"""
@@ -269,7 +251,7 @@ def ensemble_plate_results(results, min_confidence=0.7, min_votes=2):
         'votes': vote_count
     }
 
-# Auto-detect GPU và cấu hình detector - BẮT BUỘC GPU
+# GPU Detection and Device Configuration
 try:
     import torch
     if torch.cuda.is_available():
@@ -285,24 +267,18 @@ try:
                 print(f"🚀 cuDNN: Available (version check not supported)")
         except Exception as e:
             print(f"🚀 cuDNN: Available (version: {e})")
-        DETECTION_FREQUENCY = 1  # Detect mỗi frame để tracking kịp nhất
-        DETECTION_SCALE = 1.0  # KHÔNG scale để tracking chính xác, GPU đủ mạnh
-
+        DETECTION_FREQUENCY = 1
+        DETECTION_SCALE = 1.0
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         DEVICE = 'mps'
         print("🚀 GPU MPS (Apple Silicon) detected")
-        DETECTION_FREQUENCY = 1  # Detect mỗi frame
-        DETECTION_SCALE = 0.8  # Scale nhẹ để tăng tốc
+        DETECTION_FREQUENCY = 1
+        DETECTION_SCALE = 0.8
     else:
-        # Cho phép chạy trên CPU với WARNING (không phải error)
         DEVICE = 'cpu'
         print("⚠️  WARNING: No GPU detected! System will run on CPU (SLOW performance)")
-        print("⚠️  For optimal performance, please install CUDA and PyTorch with CUDA support:")
-        print("    1. Install CUDA: https://developer.nvidia.com/cuda-downloads")
-        print("    2. Install PyTorch with CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118")
-        print("    3. Update GPU drivers")
-        DETECTION_FREQUENCY = 1  # Detect mỗi frame
-        DETECTION_SCALE = 0.7  # Scale để tăng tốc trên CPU
+        DETECTION_FREQUENCY = 1
+        DETECTION_SCALE = 0.7
 except ImportError as e:
     print(f"⚠️  WARNING: PyTorch is not installed! Please install: pip install torch torchvision")
     print(f"    Error: {e}")
@@ -310,31 +286,122 @@ except ImportError as e:
     DEVICE = 'cpu'
     DETECTION_FREQUENCY = 1
     DETECTION_SCALE = 0.7
-    admin_frame_buffer = deque(maxlen=60)
-    original_frame_buffer = deque(maxlen=60)
-    violation_frame_buffer = {}
-    sent_violation_tracks = set()
 except Exception as e:
     print(f"⚠️  WARNING: Error detecting GPU: {e}")
     print("⚠️  System will run on CPU (SLOW performance)")
     DEVICE = 'cpu'
     DETECTION_FREQUENCY = 1
     DETECTION_SCALE = 0.7
-    admin_frame_buffer = deque(maxlen=60)
-    original_frame_buffer = deque(maxlen=60)
-    violation_frame_buffer = {}
-    sent_violation_tracks = set()
 
-# LAZY LOADING: Chỉ khởi tạo detector khi cần (tránh block startup)
 detector = None
 tracker = None
 plate_detector_post = None
 speed_limit = 40
-last_violation_time = {}
-VIOLATION_COOLDOWN = 3  # giây
+
+# ============================================================================
+# FFMPEG VIDEO HELPER FUNCTIONS
+# ============================================================================
+
+def check_ffmpeg_available():
+    """Check if FFmpeg is installed"""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['ffmpeg', '-version'],
+            capture_output=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version = result.stdout.decode().split('\n')[0]
+            print(f"✅ FFmpeg available: {version}")
+            return True
+        return False
+    except:
+        print("⚠️  FFmpeg not found - will use OpenCV fallback")
+        print("   Install: choco install ffmpeg (Windows) or apt install ffmpeg (Linux)")
+        return False
+
+def create_video_with_ffmpeg(
+    source_video_path,
+    output_path,
+    start_time,
+    duration=5.0
+):
+    """
+    Tạo video vi phạm bằng FFmpeg (direct copy stream - FAST & PERFECT)
+
+    Args:
+        source_video_path: Đường dẫn video gốc
+        output_path: Đường dẫn video output
+        start_time: Thời điểm bắt đầu (seconds)
+        duration: Độ dài video (seconds, default=5.0)
+
+    Returns:
+        (success: bool, message: str)
+    """
+    import subprocess
+
+    # Validate inputs
+    if not os.path.exists(source_video_path):
+        return False, f"Source video not found: {source_video_path}"
+
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # Build FFmpeg command
+    cmd = [
+        'ffmpeg',
+        '-ss', str(start_time),              # Seek to start time (BEFORE -i for speed)
+        '-i', source_video_path,             # Input file
+        '-t', str(duration),                 # Duration
+        '-c', 'copy',                        # Copy codec (no re-encoding, fast!)
+        '-avoid_negative_ts', 'make_zero',   # Fix timestamp issues
+        '-y',                                 # Overwrite output
+        output_path
+    ]
+
+    try:
+        print(f"[FFMPEG] 🎬 Creating video:")
+        print(f"   - Source: {os.path.basename(source_video_path)}")
+        print(f"   - Start: {start_time:.2f}s")
+        print(f"   - Duration: {duration}s")
+        print(f"   - Output: {os.path.basename(output_path)}")
+
+        # Run FFmpeg (timeout 30s)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode == 0:
+            # Verify output file
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                file_size = os.path.getsize(output_path) / 1024  # KB
+                print(f"[FFMPEG] ✅ Video created: {file_size:.1f} KB")
+                return True, f"Success: {file_size:.1f} KB"
+            else:
+                return False, "Output file empty or not created"
+        else:
+            error_msg = result.stderr.strip().split('\n')[-1] if result.stderr else "Unknown error"
+            print(f"[FFMPEG] ❌ FFmpeg failed: {error_msg}")
+            return False, f"FFmpeg error: {error_msg}"
+
+    except subprocess.TimeoutExpired:
+        return False, "FFmpeg timeout (>30s)"
+    except FileNotFoundError:
+        return False, "FFmpeg not found - please install: choco install ffmpeg"
+    except Exception as e:
+        return False, f"Exception: {str(e)}"
+
+# Check FFmpeg availability on startup
+FFMPEG_AVAILABLE = check_ffmpeg_available()
+
+# ============================================================================
 
 def init_detector():
-    """Khởi tạo detector - LAZY LOAD (chỉ khi cần)"""
+    """Khởi tạo detector - lazy load"""
     global detector, tracker, plate_detector_post
     if detector is None:
         print(">>> Loading CombinedDetector (YOLOv11n)...")
@@ -344,16 +411,12 @@ def init_detector():
         except Exception as e:
             print(f">>> ❌ CombinedDetector failed: {e}")
             detector = None
-    
+
     if tracker is None:
-        # TỐI ƯU: pixel_to_meter được điều chỉnh theo từng nguồn video
-        # Camera: 0.13, Video upload: 0.2 (sẽ được set lại khi upload video)
         tracker = SpeedTracker(pixel_to_meter=0.13)
         print(">>> ✅ SpeedTracker initialized!")
-    
+
     if plate_detector_post is None:
-        # Enhanced Plate Detector để đọc biển số từ ảnh vi phạm đã lưu
-        # Sử dụng Fast-ALPR + EasyOCR fallback + nhiều preprocessing methods
         if ENHANCED_DETECTOR_AVAILABLE:
             print(">>> Loading Enhanced Plate Detector for post-processing...")
             try:
@@ -378,54 +441,29 @@ def init_detector():
                 plate_detector_post = None
                 print(">>> ⚠️ Plate detection will be disabled for post-processing")
 
-# Tối ưu performance (đã được set dựa trên GPU/CPU)
-# DETECTION_FREQUENCY và DETECTION_SCALE đã được set ở trên
-
-# ======================
-# TELEGRAM CONFIG
-# ======================
-# Sử dụng environment variables cho AWS deployment
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '8306836477:AAEJSaTQg2Pu7tZQMEHjoDPUSIC3Mz0QtGY')
 TELEGRAM_CHAT_ID = int(os.getenv('TELEGRAM_CHAT_ID', '6680799636'))
 
-# ======================
-# TELEGRAM QUEUE
-# ======================
-# Hàng đợi để gửi Telegram tuần tự (gửi xong 1 vi phạm rồi mới gửi tiếp)
 telegram_queue = queue.Queue()
 telegram_worker_running = False
 telegram_worker_thread = None
-
-# ======================
-# TELEGRAM WORKER THREAD
-# ======================
 def telegram_worker():
-    """
-    THREAD 4: Telegram Worker Thread (telegram_worker)
-    - Lấy item từ telegram_queue
-    - Gửi ảnh + video KHÔNG bounding box (clean)
-    - KHÔNG sử dụng admin_frame_buffer
-    - Đảm bảo gửi tuần tự để tránh spam API Telegram
-    """
+    """THREAD 6: Telegram Worker Thread - Gửi thông báo tuần tự"""
     global telegram_worker_running, speed_limit
     telegram_worker_running = True
     print("[TELEGRAM THREAD] ✅ Worker thread đã khởi động - sẵn sàng xử lý hàng đợi")
-    
+
     while telegram_worker_running:
         try:
             # Lấy vi phạm từ queue (blocking, đợi đến khi có)
             violation_data = telegram_queue.get(timeout=1)
-            
+
             if violation_data is None:  # Signal để dừng
                 break
-            
-            # Xử lý cấu trúc dữ liệu mới từ violation_worker
-            # Có thể có vehicle_image_path hoặc full_img_path (backward compatibility)
+
             full_img_path = violation_data.get('vehicle_image_path') or violation_data.get('full_img_path')
             plate_img_path = violation_data.get('plate_image_path') or violation_data.get('plate_img_path')
             video_path = violation_data.get('video_path')
-            
-            # Gửi Telegram alert với ảnh/video clean (không có bbox)
             print(f"[TELEGRAM THREAD] 📤 Đang gửi vi phạm: {violation_data.get('plate', 'N/A')} (Còn {telegram_queue.qsize()} trong hàng đợi)")
             send_telegram_alert(
                 plate=violation_data.get('plate'),
@@ -441,13 +479,10 @@ def telegram_worker():
                 violation_id=violation_data.get('violation_id')
             )
             print(f"[TELEGRAM THREAD] ✅ Đã gửi xong vi phạm: {violation_data.get('plate', 'N/A')}")
-            
-            # Đánh dấu task đã hoàn thành
+
             telegram_queue.task_done()
-            
-            # Delay nhỏ giữa các lần gửi để tránh spam Telegram API
             time.sleep(0.5)
-            
+
         except queue.Empty:
             # Timeout - tiếp tục vòng lặp
             continue
@@ -460,27 +495,21 @@ def telegram_worker():
                 telegram_queue.task_done()
             except:
                 pass
-    
+
     print("[TELEGRAM THREAD] ⏹️ Worker thread đã dừng")
 
 def start_telegram_worker():
-    """Khởi động worker thread cho Telegram queue"""
+    """Khởi động Telegram worker thread"""
     global telegram_worker_thread, telegram_worker_running
-    
+
     if telegram_worker_thread is None or not telegram_worker_thread.is_alive():
         telegram_worker_thread = threading.Thread(target=telegram_worker, daemon=True)
         telegram_worker_thread.start()
         print("[TELEGRAM QUEUE] 🚀 Đã khởi động Telegram worker thread")
 
 def queue_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, video_path, owner_name, address, phone, vehicle_class="N/A", violation_id=None):
-    """
-    Thêm vi phạm vào hàng đợi Telegram (thay vì gửi trực tiếp)
-    Worker thread sẽ xử lý tuần tự
-    """
-    # Đảm bảo worker thread đang chạy
+    """Thêm vi phạm vào hàng đợi Telegram"""
     start_telegram_worker()
-    
-    # Thêm vào queue
     violation_data = {
         'plate': plate,
         'speed': speed,
@@ -494,12 +523,9 @@ def queue_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vid
         'vehicle_class': vehicle_class,
         'violation_id': violation_id
     }
-    
+
     telegram_queue.put(violation_data)
     print(f"[TELEGRAM QUEUE] ➕ Đã thêm vi phạm vào hàng đợi: {plate} (Tổng: {telegram_queue.qsize()} vi phạm đang chờ)")
-
-# ======================
-
 
 def admin_required(f):
     def wrapper(*args, **kwargs):
@@ -507,7 +533,6 @@ def admin_required(f):
             return redirect(url_for("login"))
 
         if session.get("role") != "admin":
-            # show alert và redirect về /history
             session["alert_message"] = "Bạn không có quyền truy cập!"
             return redirect(url_for("history"))
 
@@ -571,27 +596,16 @@ def update_telegram_status(violation_id, status):
         print(f"[ERROR] Update status failed: {e}")
 
 def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, video_path, owner_name, address, phone, vehicle_class="N/A", violation_id=None):
-    """
-    Gửi cảnh báo vi phạm qua Telegram với đầy đủ thông tin BẮT BUỘC:
-    1. Message text với thông tin chi tiết (BẮT BUỘC: plate, owner_name, address, phone)
-    2. Ảnh phương tiện vi phạm (BẮT BUỘC: full_img_path phải có)
-    3. Ảnh biển số (đã crop) - tùy chọn
-    4. Video khoanh vùng đối tượng vi phạm - tùy chọn
-    
-    violation_id: ID của violation để cập nhật status sau khi gửi
-    """
+    """Gửi cảnh báo vi phạm qua Telegram"""
     try:
         if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
             print("[TELEGRAM] Token hoặc Chat ID chưa được cấu hình")
-            # Cập nhật status thành 'failed' nếu không có config
             if violation_id:
                 update_telegram_status(violation_id, 'failed')
             return
-        
-        # KIỂM TRA THÔNG TIN BẮT BUỘC
+
         if not plate:
-            print("[TELEGRAM] ❌ BẮT BUỘC: Biển số không được để trống!")
-            # Xóa ảnh nếu có
+            print("[TELEGRAM] ❌ Biển số không được để trống!")
             if full_img_path and os.path.exists(full_img_path):
                 try:
                     os.remove(full_img_path)
@@ -607,12 +621,10 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             if violation_id:
                 update_telegram_status(violation_id, 'failed')
             return
-        
-        # Validate biển số Việt Nam hợp lệ
+
         normalized_plate = normalize_plate(plate)
         if not is_valid_plate(normalized_plate):
-            print(f"[TELEGRAM] ❌ BẮT BUỘC: Biển số không hợp lệ '{plate}' (normalized: {normalized_plate})")
-            # XÓA ẢNH VÌ BIỂN SỐ KHÔNG HỢP LỆ
+            print(f"[TELEGRAM] ❌ Biển số không hợp lệ '{plate}' (normalized: {normalized_plate})")
             if full_img_path and os.path.exists(full_img_path):
                 try:
                     os.remove(full_img_path)
@@ -628,13 +640,11 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             if violation_id:
                 update_telegram_status(violation_id, 'failed')
             return
-        
-        # Sử dụng biển số đã normalize
+
         plate = normalized_plate
-        
+
         if not full_img_path or not os.path.exists(full_img_path):
-            print(f"[TELEGRAM] ❌ BẮT BUỘC: Ảnh vi phạm xe không tồn tại: {full_img_path}")
-            # Xóa ảnh biển số nếu có
+            print(f"[TELEGRAM] ❌ Ảnh vi phạm xe không tồn tại: {full_img_path}")
             if plate_img_path and os.path.exists(plate_img_path):
                 try:
                     os.remove(plate_img_path)
@@ -644,38 +654,31 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             if violation_id:
                 update_telegram_status(violation_id, 'failed')
             return
-        
-        # Thông tin chủ xe (có thể None nếu không có trong database)
-        # Nhưng vẫn gửi được, chỉ hiển thị "N/A" hoặc "Chưa có thông tin"
+
         if not owner_name:
             owner_name = "Chưa có thông tin"
         if not address:
             address = "Chưa có thông tin"
         if not phone:
             phone = "Chưa có thông tin"
-        
-        # Đánh dấu đang gửi
+
         send_success = True
-        
-        # Kiểm tra và xử lý đường dẫn ảnh full frame
+
         if not full_img_path or not os.path.exists(full_img_path):
             full_img_path = None
         else:
             full_img_path = os.path.abspath(full_img_path)
 
-        # Kiểm tra và xử lý đường dẫn ảnh biển số
         if not plate_img_path or not os.path.exists(plate_img_path):
             plate_img_path = None
         else:
             plate_img_path = os.path.abspath(plate_img_path)
 
-        # Kiểm tra và xử lý đường dẫn video
         if not video_path or not os.path.exists(video_path):
             video_path = None
         else:
             video_path = os.path.abspath(video_path)
 
-        # Format loại xe sang tiếng Việt
         vehicle_type_map = {
             'car': 'Ô TÔ',
             'motorcycle': 'XE GẮN MÁY',
@@ -683,12 +686,8 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             'truck': 'XE TẢI'
         }
         vehicle_type_display = vehicle_type_map.get(vehicle_class.lower(), vehicle_class.upper())
-
-        # Tính vượt quá
         exceeded = round(speed - limit, 2)
 
-        # Tạo message chi tiết với đầy đủ thông tin BẮT BUỘC
-        # BẮT BUỘC: plate, owner_name, address, phone
         message = (
             f"🚨 *CẢNH BÁO VI PHẠM TỐC ĐỘ!*\n\n"
             f"🔰 *Biển số:* `{plate}`\n"
@@ -702,7 +701,6 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             f"⏰ *Thời gian:* {format_vietnam_time()}"
         )
 
-        # 1. GỬI MESSAGE
         try:
             response = requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -716,8 +714,6 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             print(f"[TELEGRAM] Message send error: {e}")
             send_success = False
 
-        # 2. GỬI ẢNH PHƯƠNG TIỆN VI PHẠM (BẮT BUỘC - khoanh vùng xe vi phạm)
-        # full_img_path đã được kiểm tra ở trên, chắc chắn tồn tại
         try:
             with open(full_img_path, "rb") as imgf:
                 caption = (
@@ -728,8 +724,8 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
                 )
                 response = requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
-                    files={"photo": imgf}, 
-                    data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption}, 
+                    files={"photo": imgf},
+                    data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption},
                     timeout=20
                 )
                 if response.status_code != 200:
@@ -741,7 +737,6 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
             print(f"[TELEGRAM] ❌ Lỗi gửi ảnh vi phạm xe: {e}")
             send_success = False
 
-        # 3. GỬI ẢNH BIỂN SỐ (đã crop)
         if plate_img_path:
             try:
                 with open(plate_img_path, "rb") as imgf:
@@ -751,8 +746,8 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
                     )
                     response = requests.post(
                         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
-                        files={"photo": imgf}, 
-                        data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption}, 
+                        files={"photo": imgf},
+                        data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption},
                         timeout=20
                     )
                     if response.status_code != 200:
@@ -764,20 +759,19 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
                 print(f"[TELEGRAM] Plate image send error: {e}")
                 send_success = False
 
-        # 4. GỬI VIDEO KHOANH VÙNG ĐỐI TƯỢNG VI PHẠM
         if video_path:
             try:
-                # Kiểm tra kích thước file (Telegram giới hạn 50MB)
                 file_size = os.path.getsize(video_path)
                 if file_size > 50 * 1024 * 1024:  # 50MB
                     print(f"[TELEGRAM] Video quá lớn ({file_size / 1024 / 1024:.2f}MB), bỏ qua")
                 else:
                     with open(video_path, "rb") as vf:
                         caption = (
-                            f"🎥 Video khoanh vùng đối tượng vi phạm\n"
+                            f"🎥 Video vi phạm 5s (từ camera gốc)\n"
                             f"Biển số: {plate}\n"
                             f"Loại xe: {vehicle_type_display}\n"
-                            f"Tốc độ: {round(speed, 2)} km/h (Vượt quá: {exceeded} km/h)"
+                            f"Tốc độ: {round(speed, 2)} km/h (Vượt quá: {exceeded} km/h)\n"
+                            f"⏱️ Nội dung: 2s trước + 3s sau vi phạm"
                         )
                         response = requests.post(
                             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVideo",
@@ -789,12 +783,11 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
                             print(f"[TELEGRAM] Video send failed: {response.text}")
                             send_success = False
                         else:
-                            print(f"[TELEGRAM] ✓ Đã gửi video khoanh vùng đối tượng vi phạm")
+                            print(f"[TELEGRAM] ✓ Đã gửi video vi phạm 5s (từ camera gốc)")
             except Exception as e:
                 print(f"[TELEGRAM] Video send error: {e}")
                 send_success = False
-        
-        # Cập nhật status trong database
+
         if violation_id:
             if send_success:
                 update_telegram_status(violation_id, 'sent')
@@ -804,7 +797,7 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
                 print(f"[TELEGRAM] ⚠️ Gửi cảnh báo cho {plate} có lỗi (Status: failed)")
         else:
             print(f"[TELEGRAM] ✅ Đã gửi đầy đủ cảnh báo cho {plate}")
-        
+
     except Exception as e:
         print(f"[TELEGRAM ERROR] {e}")
         import traceback
@@ -821,364 +814,131 @@ def send_telegram_alert(plate, speed, limit, full_img_path, plate_img_path, vide
 
 
 def is_valid_plate(plate):
-    """
-    Validate biển số Việt Nam hợp lệ
-    Hỗ trợ các format phổ biến:
-    - Xe cá nhân: 2 số + 1 chữ + 5 số (VD: 29A12345)
-    - Xe công vụ: 2 số + 2 chữ + 4 số (VD: 29AB1234)
-    - Xe ngoại giao: 2 số + NG + 4 số (VD: 29NG1234)
-    - Xe quân đội: 2 số + 1 chữ + 4 số (VD: 29A1234)
-    - Xe tạm thời: 2 số + 1 chữ + 4 số (VD: 29A1234)
-    """
+    """Validate biển số Việt Nam hợp lệ"""
     if not plate:
         return False
-    
-    # Normalize: loại bỏ khoảng trắng, dấu chấm, dấu gạch ngang, chuyển thành chữ hoa
     plate = plate.replace(" ", "").replace(".", "").replace("-", "").replace("_", "").upper()
-    
-    # Kiểm tra độ dài tối thiểu
     if len(plate) < 7 or len(plate) > 9:
         return False
-    
-    # Pattern 1: Xe cá nhân - 2 số + 1 chữ + 5 số (VD: 29A12345)
-    pattern1 = r"^[0-9]{2}[A-Z][0-9]{5}$"
-    if re.match(pattern1, plate):
-        return True
-    
-    # Pattern 2: Xe công vụ - 2 số + 2 chữ + 4 số (VD: 29AB1234)
-    pattern2 = r"^[0-9]{2}[A-Z]{2}[0-9]{4}$"
-    if re.match(pattern2, plate):
-        return True
-    
-    # Pattern 3: Xe ngoại giao - 2 số + NG + 4 số (VD: 29NG1234)
-    pattern3 = r"^[0-9]{2}NG[0-9]{4}$"
-    if re.match(pattern3, plate):
-        return True
-    
-    # Pattern 4: Xe quân đội/tạm thời - 2 số + 1 chữ + 4 số (VD: 29A1234)
-    pattern4 = r"^[0-9]{2}[A-Z][0-9]{4}$"
-    if re.match(pattern4, plate):
-        return True
-    
+    patterns = [
+        r"^[0-9]{2}[A-Z][0-9]{5}$",
+        r"^[0-9]{2}[A-Z]{2}[0-9]{4}$",
+        r"^[0-9]{2}NG[0-9]{4}$",
+        r"^[0-9]{2}[A-Z][0-9]{4}$"
+    ]
+    for pattern in patterns:
+        if re.match(pattern, plate):
+            return True
     return False
 
 def normalize_plate(plate):
-    """
-    Normalize biển số: loại bỏ ký tự đặc biệt, khoảng trắng, chuyển thành chữ hoa
-    """
+    """Normalize biển số"""
     if not plate:
         return ""
     return plate.replace(" ", "").replace(".", "").replace("-", "").replace("_", "").upper()
 
 
-# HANDLE VIOLATION
-# ======================
 def save_violation_data(detection, speed, frame):
-    """
-    Lưu dữ liệu vi phạm vào database NGAY LẬP TỨC (không chờ Fast-ALPR)
-    Sau đó gửi ảnh đã lưu cho Fast-ALPR đọc biển số (async)
-    
-    FLOW MỚI:
-    1. Lưu ảnh vi phạm vào database ngay (với biển số tạm thời từ tracking)
-    2. Gửi ảnh đã lưu cho Fast-ALPR đọc (async) - tránh làm chậm tracking
-    3. Fast-ALPR đọc từ ảnh tĩnh đã lưu trong database
-    4. Cập nhật lại biển số vào database sau khi Fast-ALPR đọc xong
-    
-    detection: Dict chứa thông tin xe và biển số
-    speed: Tốc độ xe (km/h)
-    frame: Frame GỐC (KHÔNG CÓ BOUNDING BOX) - để lưu ảnh vi phạm
-    """
+    """Lưu dữ liệu vi phạm vào database và gửi cho ALPR worker async - Using ViolationSaver"""
     try:
-        plate = detection.get('plate')  # Biển số tạm thời từ tracking (có thể None hoặc không chính xác)
+        plate = detection.get('plate')
         vehicle_class = detection['vehicle_class']
         track_id = detection['track_id']
         vehicle_bbox = detection['vehicle_bbox']
+        plate_bbox = detection.get('plate_bbox', vehicle_bbox)  # Fallback to vehicle_bbox if no plate_bbox
 
-        # ✅ KIỂM TRA CHỐNG TRÙNG LẶP VI PHẠM
-        if not can_save_violation(track_id):
-            return  # Bỏ qua vi phạm này vì xe vừa vi phạm gần đây
+        if not can_save_violation(track_id, plate):
+            return
 
-        # Dùng thời gian Việt Nam cho timestamp
-        timestamp = int(time.time())
+        timestamp = time.time()
+        temp_plate = normalize_plate(plate) if plate else f"UNKNOWN_{track_id}"
 
-        # Normalize biển số tạm thời (nếu có)
-        temp_plate = normalize_plate(plate) if plate else None
+        # Get clean frames from buffer
+        clean_frames = []
+        if track_id in violation_frame_buffer:
+            buffer_data = violation_frame_buffer[track_id]
+            if isinstance(buffer_data, dict):
+                # New dict format
+                clean_frames = list(buffer_data.get('frames', []))
+            else:
+                # Old deque format (backward compatibility)
+                clean_frames = list(buffer_data)
 
-        # CHẤP NHẬN BIỂN SỐ TẠM THỜI (hoặc NULL) - sẽ được cập nhật sau khi Fast-ALPR đọc xong
-        # Không bỏ qua nếu biển số không hợp lệ - vẫn lưu để Fast-ALPR đọc lại
+        # Check if we have enough frames
+        if len(clean_frames) < 30:
+            print(f"[VIOLATION SAVER] ⚠️ Không đủ frames ({len(clean_frames)} < 30), bỏ qua vi phạm")
+            return
 
-        os.makedirs("static/uploads", exist_ok=True)
-        os.makedirs("static/plate_images", exist_ok=True)
-        os.makedirs("static/violation_videos", exist_ok=True)
+        print(f"[VIOLATION SAVER] 📹 Bắt đầu lưu vi phạm với {len(clean_frames)} frames")
 
-        # LƯU ẢNH XE VI PHẠM (crop vùng xe với padding) - CHỈ LƯU 1 ẢNH
-        x1, y1, x2, y2 = vehicle_bbox
-        padding = 50
-        crop_x1 = max(0, x1 - padding)
-        crop_y1 = max(0, y1 - padding)
-        crop_x2 = min(frame.shape[1], x2 + padding)
-        crop_y2 = min(frame.shape[0], y2 + padding)
-
-        vehicle_img_name = f"vehicle_{timestamp}_{track_id}.jpg"
-        vehicle_img_path = os.path.join("static/uploads", vehicle_img_name)
-
-        if crop_x2 > crop_x1 and crop_y2 > crop_y1:
-            vehicle_img = frame[crop_y1:crop_y2, crop_x1:crop_x2].copy()
-            cv2.imwrite(vehicle_img_path, vehicle_img)
-            print(f"[SAVED] ✅ Đã lưu ảnh xe vi phạm: {vehicle_img_name}")
-            # Dùng ảnh này cho Fast-ALPR đọc sau
-            violation_img_path = vehicle_img_path
-        else:
-            print(f"[ERROR] Invalid bbox coordinates: ({x1}, {y1}, {x2}, {y2})")
-            vehicle_img_path = None
-            violation_img_path = None
-
-        # 3. TẠO VIDEO TỪ violation_frame_buffer[track_id] (FULL MÀN HÌNH CÓ BOUNDING BOX)
-        # Video cho người vi phạm: Full màn hình, có bounding box cho xe vi phạm
-        video_telegram_name = f"violation_telegram_{timestamp}_{track_id}.mp4"
-        video_telegram_path = os.path.join("static/violation_videos", video_telegram_name)
-        
-        # Video detection: Có bounding box, text overlay (cho admin/web)
-        video_detection_name = f"violation_{timestamp}_{track_id}.mp4"
-        video_detection_path = os.path.join("static/violation_videos", video_detection_name)
-        
-        # Dùng video_telegram_path cho Telegram (gửi cho người vi phạm)
-        video_path = video_telegram_path
-        
+        # Use ViolationSaver to save evidence
         try:
-            h, w, _ = frame.shape
-            fps = video_fps if video_fps > 0 else 30
-            
-            # Sử dụng H.264 codec (tương thích với Telegram và mượt nhất)
-            # Thử các codec H.264 phổ biến - ưu tiên codec mượt
-            codec_options = [
-                ('H264', 'H.264'),       # H.264 chuẩn (Windows)
-                ('avc1', 'H.264/AVC'),   # Apple H.264
-                ('X264', 'x264'),        # x264 encoder (Linux)
-                ('h264', 'H.264'),       # H.264 alternative
-                ('XVID', 'XVID'),        # XVID (fallback tốt)
-                ('mp4v', 'MPEG-4')       # Fallback cuối cùng
-            ]
+            target_fps = 10  # Optimal for file size and quality
+            best_frame_idx = len(clean_frames) // 2  # Use middle frame as best frame
 
-            def create_video_writer(video_path, fps, width, height):
-                """Helper function để tạo video writer với FPS chính xác cho video mượt"""
-                # Đảm bảo FPS hợp lệ (từ 24 đến 60 để video mượt)
-                fps = max(24.0, min(60.0, float(fps)))
+            result = save_violation_evidence(
+                frames=clean_frames,
+                fps=target_fps,
+                full_frame=clean_frames[best_frame_idx],
+                vehicle_bbox=tuple(vehicle_bbox),
+                plate_bbox=tuple(plate_bbox),
+                plate_number=temp_plate,
+                timestamp=timestamp,
+                base_dir="violations"
+            )
 
-                for codec, name in codec_options:
-                    try:
-                        fourcc = cv2.VideoWriter_fourcc(*codec)
-                        out = cv2.VideoWriter(video_path, fourcc, fps, (int(width), int(height)))
-                        if out.isOpened():
-                            print(f"[VIDEO] Sử dụng codec: {name} ({codec}), FPS: {fps:.2f}, Size: {int(width)}x{int(height)}")
-                            return out, name
-                        else:
-                            out.release()
-                    except Exception as e:
-                        print(f"[VIDEO] Lỗi codec {codec}: {e}")
-                        continue
-                return None, None
-            
-            # ========== VIDEO TELEGRAM (FULL MÀN HÌNH CÓ BOUNDING BOX) ==========
-            # Dùng để gửi cho người vi phạm xem lại
-            # Lấy từ violation_frame_buffer[track_id] (full màn hình CÓ bounding box)
+            # Extract paths from result
+            vehicle_img_path = result['vehicle_image']
+            video_path = result['video']
+            violation_img_path = vehicle_img_path
+
+            # Extract just the filename for database (relative path from violations/)
+            vehicle_img_name = os.path.relpath(vehicle_img_path, "violations")
+            video_name_for_db = os.path.relpath(video_path, "violations")
+
+            print(f"[VIOLATION SAVER] ✅ Đã lưu evidence:")
+            print(f"  - Vehicle: {vehicle_img_path}")
+            print(f"  - Video: {video_path}")
+
+            # Mark track as sent
             global sent_violation_tracks
-            
-            out_telegram, codec_telegram = create_video_writer(video_telegram_path, fps, w, h)
-            frames_written_telegram = 0
-            
-            if out_telegram and out_telegram.isOpened():
-                # Lấy tất cả frames từ violation_frame_buffer[track_id] (full màn hình CÓ bounding box)
-                if track_id in violation_frame_buffer and len(violation_frame_buffer[track_id]) > 0:
-                    frames_telegram = list(violation_frame_buffer[track_id])
-                    num_frames = len(frames_telegram)
-                    print(f"[VIDEO TELEGRAM] Lấy {num_frames} frames từ violation_frame_buffer[track_id={track_id}] (full màn hình, có bounding box)")
+            sent_violation_tracks.add(track_id)
 
-                    # SỬ DỤNG FPS GỐC CỦA VIDEO ĐỂ VIDEO MƯỢT
-                    # Mục tiêu: video 3 giây với FPS gốc (thường 30fps = 90 frames)
-                    target_duration = 3.0  # 3 giây video mượt
-                    original_fps = video_fps if video_fps > 0 else 30
-
-                    # Nếu có đủ frame (>= 3s * fps), dùng FPS gốc
-                    # Nếu không đủ, tính FPS để video đạt ~3 giây
-                    if num_frames >= original_fps * target_duration:
-                        calculated_fps = original_fps  # Dùng FPS gốc để mượt nhất
-                    else:
-                        # Không đủ frame, tính FPS để video ~3 giây (tối thiểu 24fps để mượt)
-                        calculated_fps = max(24, num_frames / target_duration)
-
-                    calculated_fps = min(60, calculated_fps)  # Giới hạn max 60fps
-                    print(f"[VIDEO TELEGRAM] FPS: {calculated_fps:.2f} (original: {original_fps}, frames: {num_frames}, target: {target_duration}s)")
-                    
-                    # Tạo lại video writer với FPS chính xác
-                    out_telegram.release()
-                    out_telegram, codec_telegram = create_video_writer(video_telegram_path, calculated_fps, w, h)
-                    
-                    if out_telegram and out_telegram.isOpened():
-                        for frame_data in frames_telegram:
-                            # Lấy frame từ dict (fix bug: đang lưu dạng dict nhưng đọc như numpy array)
-                            if isinstance(frame_data, dict):
-                                frame_telegram = frame_data.get('frame')
-                                if frame_telegram is None:
-                                    continue
-                            else:
-                                frame_telegram = frame_data
-
-                            # Kiểm tra kích thước frame
-                            if frame_telegram.shape[0] != h or frame_telegram.shape[1] != w:
-                                # Resize nếu cần
-                                frame_telegram = cv2.resize(frame_telegram, (w, h), interpolation=cv2.INTER_LINEAR)
-
-                            # Ghi frame vào video telegram (full màn hình, CÓ BOUNDING BOX)
-                            out_telegram.write(frame_telegram)
-                            frames_written_telegram += 1
-                        
-                        out_telegram.release()
-                        if frames_written_telegram > 0:
-                            duration = frames_written_telegram / calculated_fps
-                            print(f"[VIDEO TELEGRAM] ✅ Đã tạo video telegram: {video_telegram_name} ({frames_written_telegram} frames, {duration:.2f}s, FPS: {calculated_fps:.2f}, codec: {codec_telegram})")
-                            # Đánh dấu track_id đã gửi để không gửi lại
-                            sent_violation_tracks.add(track_id)
-                            print(f"[VIDEO TELEGRAM] ✅ Đã đánh dấu track_id {track_id} là đã gửi")
-                        else:
-                            print(f"[VIDEO TELEGRAM] ⚠️ Không có frame nào được ghi")
-                            video_telegram_path = None
-                    else:
-                        print(f"[VIDEO TELEGRAM] ❌ Không thể tạo lại video writer với FPS {calculated_fps}")
-                        if os.path.exists(video_telegram_path):
-                            try:
-                                os.remove(video_telegram_path)
-                            except:
-                                pass
-                        video_telegram_path = None
-                else:
-                    print(f"[VIDEO TELEGRAM] ⚠️ Không có frames trong violation_frame_buffer[track_id={track_id}]")
-                    video_telegram_path = None
-            else:
-                print(f"[VIDEO TELEGRAM] ❌ Không thể tạo video writer")
-                video_telegram_path = None
-            
-            # ========== VIDEO DETECTION (FULL MÀN HÌNH CÓ BOUNDING BOX CHO 1 XE VI PHẠM) ==========
-            # Dùng để hiển thị trên web/admin - giống video telegram
-            # Lấy từ violation_frame_buffer[track_id] (full màn hình, CÓ BOUNDING BOX cho 1 xe vi phạm)
-            out_detection, codec_detection = create_video_writer(video_detection_path, fps, w, h)
-            frames_written_detection = 0
-            
-            if out_detection and out_detection.isOpened():
-                # Lấy frames từ violation_frame_buffer[track_id] (full màn hình, CÓ BOUNDING BOX cho 1 xe vi phạm)
-                if track_id in violation_frame_buffer and len(violation_frame_buffer[track_id]) > 0:
-                    frames_detection = list(violation_frame_buffer[track_id])
-                    num_frames_detection = len(frames_detection)
-                    print(f"[VIDEO DETECTION] Lấy {num_frames_detection} frames từ violation_frame_buffer[track_id={track_id}] (full màn hình, có bounding box cho 1 xe vi phạm)")
-                    
-                    # SỬ DỤNG FPS GỐC CỦA VIDEO ĐỂ VIDEO MƯỢT (giống video telegram)
-                    target_duration = 3.0  # 3 giây video mượt
-                    original_fps = video_fps if video_fps > 0 else 30
-
-                    # Nếu có đủ frame (>= 3s * fps), dùng FPS gốc
-                    # Nếu không đủ, tính FPS để video đạt ~3 giây
-                    if num_frames_detection >= original_fps * target_duration:
-                        calculated_fps_detection = original_fps  # Dùng FPS gốc để mượt nhất
-                    else:
-                        # Không đủ frame, tính FPS để video ~3 giây (tối thiểu 24fps để mượt)
-                        calculated_fps_detection = max(24, num_frames_detection / target_duration)
-
-                    calculated_fps_detection = min(60, calculated_fps_detection)  # Giới hạn max 60fps
-                    print(f"[VIDEO DETECTION] FPS: {calculated_fps_detection:.2f} (original: {original_fps}, frames: {num_frames_detection}, target: {target_duration}s)")
-
-                    # Tạo lại video writer với FPS chính xác
-                    out_detection.release()
-                    out_detection, codec_detection = create_video_writer(video_detection_path, calculated_fps_detection, w, h)
-
-                    if out_detection and out_detection.isOpened():
-                        for frame_data in frames_detection:
-                            # Lấy frame từ dict (fix bug: đang lưu dạng dict nhưng đọc như numpy array)
-                            if isinstance(frame_data, dict):
-                                frame_detection = frame_data.get('frame')
-                                if frame_detection is None:
-                                    continue
-                            else:
-                                frame_detection = frame_data
-
-                            # Kiểm tra kích thước frame
-                            if frame_detection.shape[0] != h or frame_detection.shape[1] != w:
-                                # Resize nếu cần
-                                frame_detection = cv2.resize(frame_detection, (w, h), interpolation=cv2.INTER_LINEAR)
-
-                            # Ghi frame vào video detection (full màn hình, CÓ BOUNDING BOX cho 1 xe vi phạm)
-                            out_detection.write(frame_detection)
-                            frames_written_detection += 1
-                        
-                        out_detection.release()
-                        if frames_written_detection > 0:
-                            duration = frames_written_detection / calculated_fps_detection
-                            print(f"[VIDEO DETECTION] ✅ Đã lưu video detection: {video_detection_name} ({frames_written_detection} frames, {duration:.2f}s, FPS: {calculated_fps_detection:.2f}, codec: {codec_detection})")
-                        else:
-                            print(f"[VIDEO DETECTION] ⚠️ Không có frame nào được ghi")
-                            if os.path.exists(video_detection_path):
-                                try:
-                                    os.remove(video_detection_path)
-                                except:
-                                    pass
-                            video_detection_path = None
-                    else:
-                        print(f"[VIDEO DETECTION] ❌ Không thể tạo lại video writer với FPS {calculated_fps_detection}")
-                        if os.path.exists(video_detection_path):
-                            try:
-                                os.remove(video_detection_path)
-                            except:
-                                pass
-                        video_detection_path = None
-                else:
-                    print(f"[VIDEO DETECTION] ⚠️ Không có frames trong violation_frame_buffer[track_id={track_id}]")
-                    video_detection_path = None
-            else:
-                print(f"[VIDEO DETECTION] ❌ Không thể tạo video writer")
-                video_detection_path = None
-            
-            # Dùng video telegram cho Telegram (gửi cho người vi phạm)
-            if video_telegram_path and os.path.exists(video_telegram_path):
-                video_path = video_telegram_path
-            else:
-                video_path = None
         except Exception as e:
-            print(f"[ERROR] Video writing failed: {e}")
+            print(f"[VIOLATION SAVER ERROR] {e}")
             import traceback
             traceback.print_exc()
+            # Fallback to old paths if ViolationSaver fails
+            vehicle_img_path = None
+            violation_img_path = None
             video_path = None
+            vehicle_img_name = None
+            video_name_for_db = None
 
-        # 4. LƯU VÀO DATABASE NGAY (KHÔNG CHỜ Fast-ALPR) - với biển số tạm thời hoặc NULL
-        # TỐI ƯU: Batch insert, connection pooling, async
         violation_id = None
         try:
             with app.app_context():
                 conn = mysql.connection
                 cursor = conn.cursor()
                 cursor.execute("SET time_zone = '+07:00'")
-                
-                # Lưu với biển số tạm thời (nếu hợp lệ) hoặc NULL
-                # Fast-ALPR sẽ cập nhật lại sau
+
                 db_plate = temp_plate if (temp_plate and is_valid_plate(temp_plate)) else None
-                
-                # TỐI ƯU: Tạo hoặc cập nhật vehicle_owner nếu có biển số tạm thời (INSERT IGNORE để tránh duplicate)
+
                 if db_plate:
                     cursor.execute("INSERT IGNORE INTO vehicle_owner (plate, owner_name, address, phone) VALUES (%s, NULL, NULL, NULL)", (db_plate,))
                     conn.commit()
-                
-                # TỐI ƯU: Lưu violation với single query (plate có thể NULL - sẽ được cập nhật sau)
-                # status mặc định là 'pending' (chưa gửi Telegram)
-                video_name_for_db = video_detection_name if video_detection_path and os.path.exists(video_detection_path) else (video_telegram_name if video_telegram_path and os.path.exists(video_telegram_path) else None)
+
                 cursor.execute("""
-                    INSERT INTO violations (plate, speed, speed_limit, image, plate_image, video, status, vehicle_class, time) 
+                    INSERT INTO violations (plate, speed, speed_limit, image, plate_image, video, status, vehicle_class, time)
                     VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s, CONVERT_TZ(NOW(), @@session.time_zone, '+07:00'))
                 """, (
-                    db_plate, 
-                    speed, 
-                    speed_limit, 
+                    db_plate,
+                    speed,
+                    speed_limit,
                     vehicle_img_name if vehicle_img_path else None,
-                    None,  # plate_image sẽ được cập nhật sau khi Fast-ALPR đọc xong
-                    video_name_for_db,  # Lưu video detection (full màn hình, có bounding box cho 1 xe vi phạm) cho admin
-                    vehicle_class  # Lưu loại xe ngay từ đầu
+                    None,
+                    video_name_for_db if video_name_for_db else None,
+                    vehicle_class
                 ))
                 conn.commit()
                 violation_id = cursor.lastrowid
@@ -1188,17 +948,11 @@ def save_violation_data(detection, speed, frame):
             print(f"[ERROR] Database error: {e}")
             import traceback
             traceback.print_exc()
-            return  # Không tiếp tục nếu lưu database lỗi
+            return
 
-        # 5. GỬI ẢNH ĐÃ LƯU CHO ALPR WORKER THREAD (QUA QUEUE) - KHÔNG BLOCK TRACKING
-        # ALPR Worker Thread sẽ đọc từ ảnh tĩnh đã lưu và cập nhật lại database
         if violation_id and violation_img_path and os.path.exists(violation_img_path):
-            print(f"[ALPR QUEUE] 📤 Gửi ảnh đã lưu vào ALPR queue (async): {violation_img_name}")
-            
-            # Đảm bảo ALPR worker thread đang chạy
+            print(f"[ALPR QUEUE] 📤 Gửi ảnh đã lưu vào ALPR queue (async): {os.path.basename(violation_img_path)}")
             start_alpr_worker()
-            
-            # Gửi vào ALPR queue
             try:
                 alpr_queue.put({
                     'violation_id': violation_id,
@@ -1209,15 +963,15 @@ def save_violation_data(detection, speed, frame):
                     'speed_limit': speed_limit,
                     'vehicle_class': vehicle_class,
                     'track_id': track_id
-                }, block=False)  # Không block nếu queue đầy
+                }, block=False)
                 print(f"[ALPR QUEUE] ✅ Đã thêm vào ALPR queue (Tổng: {alpr_queue.qsize()} ảnh đang chờ)")
             except queue.Full:
                 print(f"[ALPR QUEUE] ⚠️ Queue đầy, bỏ qua ảnh này (có thể xử lý sau)")
         else:
             print(f"[WARNING] Không thể gửi ảnh cho ALPR: violation_id={violation_id}, img_exists={violation_img_path and os.path.exists(violation_img_path) if violation_img_path else False}")
-        
+
         print(f"[SAVED] ✅ Đã lưu vi phạm: {vehicle_class} - Track ID: {track_id} - {speed:.1f} km/h (Fast-ALPR đang xử lý...)")
-        
+
     except Exception as e:
         print(f"[ERROR] save_violation_data failed: {e}")
         import traceback
@@ -1225,34 +979,26 @@ def save_violation_data(detection, speed, frame):
 
 
 def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img_path, video_path, speed, speed_limit, vehicle_class, track_id):
-    """
-    Đọc biển số từ ảnh vi phạm ĐÃ LƯU trong database bằng Fast-ALPR
-    Sau đó cập nhật lại database với biển số chính xác và ảnh biển số
-    
-    QUAN TRỌNG: Hàm này chạy ASYNC, không block tracking
-    Fast-ALPR chỉ đọc ảnh tĩnh đã lưu, không đọc từ video stream
-    """
+    """Đọc biển số từ ảnh vi phạm đã lưu bằng Fast-ALPR và cập nhật database"""
     try:
         print(f"[FAST-ALPR] 🔍 Bắt đầu đọc biển số từ ảnh đã lưu: {os.path.basename(violation_img_path)}")
-        
+
         # Kiểm tra ảnh tồn tại
         if not os.path.exists(violation_img_path):
             print(f"[FAST-ALPR] ❌ Ảnh không tồn tại: {violation_img_path}")
             return
-        
-        # Đọc ảnh từ disk (ảnh tĩnh đã lưu)
+
         violation_frame = cv2.imread(violation_img_path)
         if violation_frame is None:
             print(f"[FAST-ALPR] ❌ Không thể đọc ảnh: {violation_img_path}")
             return
-        
+
         print(f"[FAST-ALPR] ✅ Đã đọc ảnh từ disk: {violation_frame.shape[1]}x{violation_frame.shape[0]}")
-        
-        # Resize ảnh nếu quá lớn để tăng tốc
+
         h_orig, w_orig = violation_frame.shape[:2]
         max_width = 800
         max_height = 600
-        
+
         scale_factor = 1.0
         if w_orig > max_width or h_orig > max_height:
             scale_w = max_width / w_orig if w_orig > max_width else 1.0
@@ -1264,26 +1010,22 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
             print(f"[FAST-ALPR] ⚡ Resize ảnh: {w_orig}x{h_orig} → {new_w}x{new_h}")
         else:
             detection_frame = violation_frame
-        
-        # GỌI Fast-ALPR ĐỌC BIỂN SỐ TỪ ẢNH TĨNH
+
         plate_img_path = None
         plate_img_name = None
         detected_plate_text = None
         detected_plate_bbox = None
-        
+
         try:
-            # Kiểm tra plate_detector_post có sẵn không
             if plate_detector_post is None:
                 print(f"[FAST-ALPR] ⚠️ Plate detector not available, skipping plate detection")
                 plate_results_raw = []
             else:
-                # GỌI Fast-ALPR ĐỌC BIỂN SỐ TỪ ẢNH TĨNH ĐÃ LƯU
                 plate_results_raw = plate_detector_post.detect(detection_frame)
-            
+
             if not plate_results_raw:
                 print(f"[FAST-ALPR] ⚠️ Fast-ALPR không phát hiện biển số")
                 plate_results = []
-                # Xóa ảnh vi phạm vì không đọc được biển số
                 if violation_img_path and os.path.exists(violation_img_path):
                     try:
                         os.remove(violation_img_path)
@@ -1309,95 +1051,80 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
                     print(f"[ERROR] Không thể xóa record trong database: {e}")
                 return  # Dừng xử lý vì không có biển số
             else:
-                print(f"[FAST-ALPR] ⚡ Phát hiện {len(plate_results_raw)} biển số (thời gian nhanh)")
-                
-                # Scale lại bbox về kích thước gốc nếu đã resize
+                print(f"[FAST-ALPR] ⚡ Phát hiện {len(plate_results_raw)} biển số")
+
                 plate_results = []
                 seen_plates = set()
-                
+
                 for result in plate_results_raw:
                     plate_text = result.get('plate', '').strip()
                     if not plate_text:
                         continue
-                    
-                    # Scale lại bbox về kích thước gốc (CHÍNH XÁC)
+
                     if scale_factor != 1.0:
                         px1, py1, px2, py2 = result['bbox']
-                        # Scale về kích thước gốc
                         px1 = int(px1 / scale_factor)
                         py1 = int(py1 / scale_factor)
                         px2 = int(px2 / scale_factor)
                         py2 = int(py2 / scale_factor)
                         result['bbox'] = (px1, py1, px2, py2)
-                    
-                    # Normalize biển số
+
                     normalized = normalize_plate(plate_text)
                     if normalized and normalized not in seen_plates:
                         seen_plates.add(normalized)
-                        # Cập nhật plate text đã normalize
                         result['plate'] = normalized
                         result['plate_original'] = plate_text
                         plate_results.append(result)
-            
-            # Xử lý kết quả
+
             if plate_results and len(plate_results) > 0:
                 print(f"[FAST-ALPR] ✅ Tổng cộng phát hiện {len(plate_results)} biển số unique trong ảnh vi phạm")
-                
-                # Chọn biển số tốt nhất (ưu tiên confidence cao và text đầy đủ)
+
                 best_plate = None
                 best_score = 0
-                
+
                 for plate_result in plate_results:
                     plate_text = plate_result['plate']
                     plate_bbox_crop = plate_result['bbox']
                     plate_conf = plate_result.get('confidence', 0.5)
                     detection_conf = plate_result.get('detection_conf', 0.5)
                     ocr_conf = plate_result.get('ocr_conf', 0.5)
-                    
-                    # Normalize lại để chắc chắn
+
                     plate_text = normalize_plate(plate_text)
                     if not plate_text:
                         continue
-                    
-                    # 🚫 CHỈ CHỌN BIỂN SỐ HỢP LỆ - Validation ngay từ đầu
+
                     if not is_valid_plate(plate_text):
                         print(f"[FAST-ALPR] ⚠️ Bỏ qua biển số không hợp lệ: {plate_text} (original: {plate_result.get('plate_original', '')})")
                         continue
+
+                    score = plate_conf * 50
+                    score += detection_conf * 20
+                    score += ocr_conf * 15
                     
-                    # Tính điểm để chọn biển số tốt nhất
-                    score = plate_conf * 50  # Confidence tổng hợp có trọng số cao
-                    score += detection_conf * 20  # Detection confidence
-                    score += ocr_conf * 15  # OCR confidence
-                    
-                    # Ưu tiên biển số đầy đủ (>= 8 ký tự)
                     if len(plate_text) >= 8:
                         score += 30
                     elif len(plate_text) >= 6:
                         score += 20
                     else:
-                        continue  # Bỏ qua biển số không đầy đủ
-                    
-                    # Kiểm tra bbox hợp lệ
+                        continue
+
                     px1, py1, px2, py2 = plate_bbox_crop
                     if px2 <= px1 or py2 <= py1:
                         continue
-                    
-                    # Điểm cho kích thước bbox hợp lý
+
                     bbox_w = px2 - px1
                     bbox_h = py2 - py1
                     bbox_area = bbox_w * bbox_h
-                    
-                    # Kích thước hợp lý cho biển số
+
                     if 50 <= bbox_w <= 500 and 20 <= bbox_h <= 150:
                         score += 10
                     if bbox_area >= 2000:
                         score += 5
-                    
-                    # Điểm cho tỷ lệ khung hình (biển số thường rộng hơn cao)
+
                     aspect_ratio = bbox_w / bbox_h if bbox_h > 0 else 0
                     if 2.0 <= aspect_ratio <= 5.0:
                         score += 10
-                    
+
                     if score > best_score:
                         best_plate = {
                             'plate': plate_text,
@@ -1407,13 +1134,13 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
                             'ocr_conf': ocr_conf
                         }
                         best_score = score
-                
+
                 if best_plate:
-                    detected_plate_text = normalize_plate(best_plate['plate'])  # Normalize lại
+                    detected_plate_text = normalize_plate(best_plate['plate'])
                     detected_plate_bbox = best_plate['bbox']
-                    print(f"[FAST-ALPR] ✅ Bước 3: Fast-ALPR đã đọc được biển số: {detected_plate_text} "
+                    print(f"[FAST-ALPR] ✅ Fast-ALPR đã đọc được biển số: {detected_plate_text} "
                           f"(conf={best_plate['confidence']:.2f}, det={best_plate['detection_conf']:.2f}, ocr={best_plate['ocr_conf']:.2f}, score={best_score:.1f})")
-                    print(f"[FAST-ALPR] 📦 Bước 4: Bounding box biển số: ({detected_plate_bbox[0]}, {detected_plate_bbox[1]}, {detected_plate_bbox[2]}, {detected_plate_bbox[3]})")
+                    print(f"[FAST-ALPR] 📦 Bounding box biển số: ({detected_plate_bbox[0]}, {detected_plate_bbox[1]}, {detected_plate_bbox[2]}, {detected_plate_bbox[3]})")
                 else:
                     print(f"[FAST-ALPR] ⚠️ Không có biển số hợp lệ trong kết quả")
                     # Log tất cả biển số đã detect để debug
@@ -1475,148 +1202,106 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
             print(f"[ERROR] ❌ Lỗi khi dùng Fast-ALPR đọc biển số: {e}")
             import traceback
             traceback.print_exc()
-        
-        # 3. CROP ẢNH BIỂN SỐ TỪ BOUNDING BOX CỦA FAST-ALPR
-        # Bước 5: Sau khi Fast-ALPR đã đọc được biển số và trả về bounding box, crop ảnh biển số
-        # Bước 6: Lưu ảnh biển số đã crop để hiển thị
+
         if detected_plate_bbox:
-            print(f"[PLATE CROP] ✂️ Bước 5: Đang crop ảnh biển số từ bounding box của Fast-ALPR...")
+            print(f"[PLATE CROP] ✂️ Đang crop ảnh biển số từ bounding box của Fast-ALPR...")
             try:
                 px1, py1, px2, py2 = detected_plate_bbox
-                
-                # Validate và log bbox ban đầu (bbox từ Fast-ALPR là tương đối với violation_frame)
                 h, w = violation_frame.shape[:2]
                 print(f"[PLATE CROP] Fast-ALPR bbox: ({px1}, {py1}, {px2}, {py2}), Violation frame size: {w}x{h}")
-                
-                # Validate bbox trước - đảm bảo nằm trong violation_frame
+
                 px1 = max(0, min(px1, w - 1))
                 py1 = max(0, min(py1, h - 1))
                 px2 = max(px1 + 1, min(px2, w))
                 py2 = max(py1 + 1, min(py2, h))
-                
-                # Kiểm tra bbox hợp lệ
+
                 if px2 <= px1 or py2 <= py1:
                     print(f"[ERROR] Plate bbox không hợp lệ sau validate: ({px1}, {py1}, {px2}, {py2})")
                 else:
-                    # Mở rộng bbox một chút để bao hết biển số (tránh bị cắt)
-                    # Padding nhỏ hơn để crop chính xác hơn, chỉ bao quanh biển số
-                    # Tính padding dựa trên kích thước bbox để tỷ lệ hợp lý
                     bbox_w_orig = px2 - px1
                     bbox_h_orig = py2 - py1
-                    
-                    # Padding tỷ lệ với kích thước bbox (5-10% mỗi bên)
-                    padding_x = max(5, int(bbox_w_orig * 0.05))  # Tối thiểu 5px, tối đa 5% width
-                    padding_y = max(3, int(bbox_h_orig * 0.05))  # Tối thiểu 3px, tối đa 5% height
-                    
-                    # Giới hạn padding để không quá lớn
+
+                    padding_x = max(5, int(bbox_w_orig * 0.05))
+                    padding_y = max(3, int(bbox_h_orig * 0.05))
                     padding_x = min(padding_x, 10)
                     padding_y = min(padding_y, 8)
-                    
+
                     px1 = max(0, px1 - padding_x)
                     py1 = max(0, py1 - padding_y)
                     px2 = min(w, px2 + padding_x)
                     py2 = min(h, py2 + padding_y)
-                    
-                    # Đảm bảo kích thước tối thiểu hợp lý
+
                     bbox_w = px2 - px1
                     bbox_h = py2 - py1
-                    
+
                     print(f"[PLATE CROP] After padding: ({px1}, {py1}, {px2}, {py2}), Size: {bbox_w}x{bbox_h} (padding: {padding_x}x{padding_y})")
-                    
+
                     if bbox_w >= 30 and bbox_h >= 15:
-                        # Crop ảnh biển số từ violation_frame (đã lưu) - CHÍNH XÁC TỪ BBOX CỦA FAST-ALPR
                         plate_img = violation_frame[py1:py2, px1:px2].copy()
-                        
+
                         if plate_img.size == 0:
                             print(f"[ERROR] ❌ Plate crop rỗng: ({px1}, {py1}, {px2}, {py2})")
                         else:
-                            print(f"[PLATE CROP] ✅ Bước 5: Crop thành công ảnh biển số: {plate_img.shape[1]}x{plate_img.shape[0]}")
-                            print(f"[PLATE CROP] 🎨 Bước 6: Đang enhance và lưu ảnh biển số để hiển thị...")
-                            
-                            # ENHANCE ẢNH MÀU để rõ nét hơn - GIỮ MÀU GỐC (KHÔNG CHUYỂN SANG ĐEN TRẮNG)
+                            print(f"[PLATE CROP] ✅ Crop thành công ảnh biển số: {plate_img.shape[1]}x{plate_img.shape[0]}")
+
                             try:
-                                # Đảm bảo ảnh có 3 kênh màu (BGR) - LUÔN GIỮ MÀU
                                 if len(plate_img.shape) == 2:
-                                    # Nếu là grayscale, chuyển sang BGR (tạo ảnh màu từ grayscale)
                                     plate_img = cv2.cvtColor(plate_img, cv2.COLOR_GRAY2BGR)
                                 elif len(plate_img.shape) == 3 and plate_img.shape[2] == 3:
-                                    # Đã là BGR, giữ nguyên
                                     pass
                                 else:
-                                    # Nếu không phải BGR, chuyển sang BGR
                                     plate_img = cv2.cvtColor(plate_img, cv2.COLOR_GRAY2BGR)
-                                
-                                # Đảm bảo ảnh là BGR (3 kênh màu)
+
                                 if len(plate_img.shape) != 3 or plate_img.shape[2] != 3:
                                     raise ValueError(f"Ảnh không phải BGR: shape={plate_img.shape}")
-                                
-                                # Enhance từng kênh màu riêng biệt để giữ màu gốc
-                                # Chuyển sang LAB color space để enhance tốt hơn (giữ màu tốt)
+
                                 lab = cv2.cvtColor(plate_img, cv2.COLOR_BGR2LAB)
                                 l, a, b = cv2.split(lab)
-                                
-                                # Tăng contrast và brightness cho kênh L (Lightness) bằng CLAHE
                                 clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(4,4))
                                 l_enhanced = clahe.apply(l)
-                                
-                                # Merge lại - GIỮ NGUYÊN kênh a và b (màu sắc)
                                 lab_enhanced = cv2.merge([l_enhanced, a, b])
-                                
-                                # Chuyển lại về BGR - ĐẢM BẢO CÓ MÀU
                                 enhanced = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
-                                
-                                # Kiểm tra lại đảm bảo có màu
+
                                 if len(enhanced.shape) != 3 or enhanced.shape[2] != 3:
                                     raise ValueError(f"Ảnh enhanced không phải BGR: shape={enhanced.shape}")
-                                
-                                # Unsharp masking để làm rõ nét (tăng độ sắc nét) - trên ảnh màu
+
                                 gaussian = cv2.GaussianBlur(enhanced, (0, 0), 1.5)
                                 sharpened = cv2.addWeighted(enhanced, 1.5, gaussian, -0.5, 0)
-                                
-                                # Tăng saturation một chút để màu đẹp hơn
+
                                 hsv = cv2.cvtColor(sharpened, cv2.COLOR_BGR2HSV)
                                 h, s, v = cv2.split(hsv)
-                                s = cv2.multiply(s, 1.2)  # Tăng saturation 20%
-                                s = cv2.min(s, 255)  # Đảm bảo không vượt quá 255
+                                s = cv2.multiply(s, 1.2)
+                                s = cv2.min(s, 255)
                                 hsv_enhanced = cv2.merge([h, s, v])
                                 sharpened = cv2.cvtColor(hsv_enhanced, cv2.COLOR_HSV2BGR)
-                                
-                                # Kiểm tra lại đảm bảo có màu
+
                                 if len(sharpened.shape) != 3 or sharpened.shape[2] != 3:
                                     raise ValueError(f"Ảnh sharpened không phải BGR: shape={sharpened.shape}")
-                                
-                                # Resize nếu quá nhỏ để dễ đọc hơn (tối thiểu 200px width, không quá lớn)
+
                                 h_img, w_img = sharpened.shape[:2]
-                                target_width = 200  # Giảm từ 250 xuống 200 để không quá lớn
-                                max_width = 400  # Giới hạn tối đa
-                                
+                                target_width = 200
+                                max_width = 400
+
                                 if w_img < target_width:
                                     scale = target_width / w_img
                                     new_w = int(w_img * scale)
                                     new_h = int(h_img * scale)
-                                    # Đảm bảo không quá lớn
                                     if new_w > max_width:
                                         scale = max_width / w_img
                                         new_w = int(w_img * scale)
                                         new_h = int(h_img * scale)
-                                    # Dùng INTER_CUBIC để chất lượng tốt hơn
                                     sharpened = cv2.resize(sharpened, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
                                 elif w_img > max_width:
-                                    # Nếu quá lớn, resize xuống
                                     scale = max_width / w_img
                                     new_w = int(w_img * scale)
                                     new_h = int(h_img * scale)
                                     sharpened = cv2.resize(sharpened, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-                                
-                                # Đảm bảo cuối cùng vẫn là BGR (3 kênh màu)
+
                                 if len(sharpened.shape) != 3 or sharpened.shape[2] != 3:
                                     raise ValueError(f"Ảnh cuối cùng không phải BGR: shape={sharpened.shape}")
-                                
+
                                 plate_img_final = sharpened
-                                
-                                # Lưu ảnh với quality cao (95) để giữ chất lượng
-                                # CHỈ LƯU NẾU BIỂN SỐ HỢP LỆ
-                                # Validate lại biển số trước khi lưu
+
                                 if not detected_plate_text or not is_valid_plate(detected_plate_text):
                                     print(f"[SKIP] ⚠️ Biển số không hợp lệ, không lưu ảnh: {detected_plate_text}")
                                     plate_img_path = None
@@ -1628,11 +1313,10 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
                                     cv2.imwrite(plate_img_path, plate_img_final, [cv2.IMWRITE_JPEG_QUALITY, 95])
                                     print(f"[SAVED] ✅ Đã lưu ảnh biển số: {plate_img_name}")
                             except Exception as e:
-                                # Fallback: Lưu ảnh gốc nếu enhance lỗi
                                 print(f"[WARNING] Plate enhance failed: {e}, saving original")
                                 if len(plate_img.shape) == 2:
                                     plate_img = cv2.cvtColor(plate_img, cv2.COLOR_GRAY2BGR)
-                                
+
                                 if not detected_plate_text or not is_valid_plate(detected_plate_text):
                                     print(f"[SKIP] ⚠️ Biển số không hợp lệ, không lưu ảnh: {detected_plate_text}")
                                     plate_img_path = None
@@ -1649,47 +1333,41 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
                 print(f"[ERROR] ❌ Lỗi khi xử lý plate_bbox từ Fast-ALPR: {e}")
                 import traceback
                 traceback.print_exc()
-        
-        # 4. CẬP NHẬT DATABASE - CHỈ LƯU NẾU CÓ CẢ BIỂN SỐ VÀ ẢNH BIỂN SỐ
-        # YÊU CẦU: Phải có CẢ biển số hợp lệ VÀ ảnh biển số mới được lưu
+
         if detected_plate_text and is_valid_plate(detected_plate_text) and plate_img_path and os.path.exists(plate_img_path):
             try:
                 with app.app_context():
                     conn = mysql.connection
                     cursor = conn.cursor()
                     cursor.execute("SET time_zone = '+07:00'")
-                    
-                    # Tạo hoặc cập nhật vehicle_owner với biển số chính xác
+
                     cursor.execute("SELECT * FROM vehicle_owner WHERE plate=%s", (detected_plate_text,))
                     owner = cursor.fetchone()
                     if not owner:
                         cursor.execute("INSERT INTO vehicle_owner (plate, owner_name, address, phone) VALUES (%s, NULL, NULL, NULL)", (detected_plate_text,))
                         conn.commit()
-                    
-                    # Cập nhật violation với biển số chính xác, ảnh biển số và vehicle_class
+
                     cursor.execute("""
-                        UPDATE violations 
+                        UPDATE violations
                         SET plate=%s, plate_image=%s, vehicle_class=%s
                         WHERE id=%s
                     """, (
                         detected_plate_text,
-                        plate_img_name,  # Đảm bảo có ảnh biển số
-                        vehicle_class,  # Lưu loại xe
+                        plate_img_name,
+                        vehicle_class,
                         violation_id
                     ))
                     conn.commit()
-                    
-                    # Lấy thông tin owner
+
                     cursor.execute("SELECT owner_name, address, phone FROM vehicle_owner WHERE plate=%s", (detected_plate_text,))
                     owner = cursor.fetchone()
                     owner_name = owner["owner_name"] or "Không rõ" if owner else "Không rõ"
                     address = owner["address"] or "Không rõ" if owner else "Không rõ"
                     phone = owner["phone"] or "Không rõ" if owner else "Không rõ"
-                    
+
                     print(f"[DB] ✅ Đã cập nhật violation ID {violation_id} với biển số: {detected_plate_text} và ảnh biển số: {plate_img_name}")
-                    
-                    # Gửi Telegram alert với biển số chính xác (qua queue để gửi tuần tự)
-                    full_img_path = violation_img_path  # Ảnh vi phạm đã lưu
+
+                    full_img_path = violation_img_path
                     queue_telegram_alert(
                         plate=detected_plate_text,
                         speed=speed,
@@ -1708,100 +1386,81 @@ def process_plate_from_saved_image(violation_id, violation_img_path, vehicle_img
                 import traceback
                 traceback.print_exc()
         else:
-            # XÓA RECORD TẠM NẾU KHÔNG CÓ ĐẦY ĐỦ THÔNG TIN
-            # Chỉ lưu những vi phạm có CẢ biển số VÀ ảnh biển số
             try:
                 with app.app_context():
                     conn = mysql.connection
                     cursor = conn.cursor()
                     cursor.execute("DELETE FROM violations WHERE id=%s", (violation_id,))
                     conn.commit()
-                    
-                    # Xóa các file đã lưu (tùy chọn - có thể giữ lại để debug)
+
                     if violation_img_path and os.path.exists(violation_img_path):
                         try:
                             os.remove(violation_img_path)
                             print(f"[CLEANUP] Đã xóa ảnh vi phạm: {os.path.basename(violation_img_path)}")
                         except:
                             pass
-                    
+
                     if vehicle_img_path and os.path.exists(vehicle_img_path):
                         try:
                             os.remove(vehicle_img_path)
                             print(f"[CLEANUP] Đã xóa ảnh xe: {os.path.basename(vehicle_img_path)}")
                         except:
                             pass
-                    
+
                     if video_path and os.path.exists(video_path):
                         try:
                             os.remove(video_path)
                             print(f"[CLEANUP] Đã xóa video: {os.path.basename(video_path)}")
                         except:
                             pass
-                    
+
                     reason = []
                     if not detected_plate_text or not is_valid_plate(detected_plate_text):
                         reason.append("không có biển số hợp lệ")
                     if not plate_img_path or not os.path.exists(plate_img_path):
                         reason.append("không có ảnh biển số")
-                    
+
                     print(f"[SKIP] ⚠️ Đã xóa violation ID {violation_id} vì: {', '.join(reason)}")
-                    print(f"[SKIP]    → Chỉ lưu những vi phạm có CẢ biển số nhìn rõ VÀ ảnh biển số")
             except Exception as e:
                 print(f"[ERROR] Cleanup error: {e}")
                 import traceback
                 traceback.print_exc()
-        
+
         print(f"[FAST-ALPR] ✅ Hoàn thành xử lý ảnh vi phạm ID {violation_id}")
-        
+
     except Exception as e:
         print(f"[ERROR] process_plate_from_saved_image failed: {e}")
         import traceback
         traceback.print_exc()
 
-# ======================
-# VIDEO PROCESSING THREAD
-# ======================
-# Tách detection ra thread riêng để không block video stream
-# TỐI ƯU GPU: Tăng queue size để GPU luôn có việc làm (BẮT BUỘC GPU)
-# TỐI ƯU: Khi upload video, tăng queue size để xử lý nhanh hơn
 def get_detection_queue_size():
     """Tính queue size dựa trên device và mode"""
     base_size = 15 if DEVICE == 'cuda' else 10
-    # Khi upload video, tăng queue size để xử lý nhanh hơn (tập trung tài nguyên)
     if is_video_upload_mode:
-        return base_size + 5  # Tăng thêm 5 cho video upload
+        return base_size + 5
     return base_size
 
-# ======================
-# QUEUES VÀ BUFFERS CHO 6 THREAD ARCHITECTURE
-# ======================
-# Thread 1: Video → detection_queue → Thread 2: Detection
-# Thread 2: Detection → alpr_queue → Thread 3: ALPR Worker
-# Thread 3: ALPR → best_frame_queue → Thread 4: Best Frame Selector
-# Thread 4: Best Frame → violation_queue → Thread 5: Violation Worker
-# Thread 5: Violation → telegram_queue → Thread 6: Telegram Worker
+detection_queue = deque(maxlen=get_detection_queue_size())
+stream_queue_clean = queue.Queue(maxsize=60)
+stream_queue = queue.Queue(maxsize=30)
+alpr_proactive_queue = queue.Queue(maxsize=50)
+alpr_realtime_queue = queue.Queue(maxsize=30)
+best_frame_queue = queue.Queue(maxsize=30)
+violation_queue = queue.Queue(maxsize=30)
+telegram_queue = queue.Queue(maxsize=100)
 
-detection_queue = deque(maxlen=get_detection_queue_size())  # Video → Detection
-stream_queue = queue.Queue(maxsize=30)  # Detection → Web Stream
-alpr_realtime_queue = queue.Queue(maxsize=30)  # Detection → ALPR Worker (realtime)
-best_frame_queue = queue.Queue(maxsize=30)  # ALPR → Best Frame Selector
-violation_queue = queue.Queue(maxsize=30)  # Best Frame → Violation Worker
-telegram_queue = queue.Queue(maxsize=100)  # Violation → Telegram Worker
+alpr_proactive_cache = {}
+alpr_cache_lock = threading.Lock()
 
-# Buffers theo track_id để tránh nhầm xe
 original_frame_buffer = {}
 admin_frame_buffer = {}
 violation_frame_buffer = {}
 current_detections = {}
 sent_violation_tracks = set()
-recording_tracks = {}  # NEW: Track recording state
+recording_tracks = {}
 
-# ======================
-# BUFFER MANAGEMENT FUNCTIONS
-# ======================
 def cleanup_old_buffers():
-    """AUTO CLEANUP: Xóa buffer không được update trong 5 giây"""
+    """Xóa buffer không được update trong 5 giây"""
     now = time.time()
     to_delete = []
 
@@ -1816,6 +1475,15 @@ def cleanup_old_buffers():
         if track_id in recording_tracks:
             del recording_tracks[track_id]
         print(f"🗑️ Cleaned up buffer for track {track_id}")
+    
+    # NEW: Cleanup expired active tracks (không thấy sau TRACK_TIMEOUT)
+    with active_tracks_lock:
+        expired = [tid for tid, t in active_tracks.items() if now - t > TRACK_TIMEOUT]
+        for tid in expired:
+            del active_tracks[tid]
+            if tid in original_frame_buffer:
+                del original_frame_buffer[tid]
+            print(f"🗑️ Cleaned up expired active track {tid}")
 
 def start_recording_violation(track_id):
     """Bắt đầu recording frames cho vi phạm"""
@@ -1826,7 +1494,7 @@ def start_recording_violation(track_id):
         }
         if track_id not in violation_frame_buffer:
             violation_frame_buffer[track_id] = {
-                'frames': deque(maxlen=90),
+                'frames': deque(maxlen=150),  # 150 frames @ 30fps = 5s (dư để chọn)
                 'last_update': time.time()
             }
 
@@ -1843,28 +1511,13 @@ def update_recording(track_id, frame):
         if track_id in recording_tracks:
             recording_tracks[track_id]['frame_count'] += 1
 
-# ALPR queue (giữ nguyên cho ALPR worker)
 alpr_queue = queue.Queue(maxsize=50)
 alpr_worker_running = False
 
 def detection_worker():
-    """
-    THREAD 2: Detection Worker Thread (detection_worker)
-    - Lấy frame từ detection_queue
-    - Chạy YOLO để detect xe → trả bbox + class
-    - Chạy OC-SORT/ByteTrack để gán track_id
-    - Chạy SpeedTracker → tính tốc độ
-    - Chạy FastALPR tối đa 2 biển số mỗi frame để tránh chậm
-    - Tạo frame_admin = frame.copy()
-    - Vẽ bounding box + tốc độ lên frame_admin
-    - Lưu frame_admin vào admin_frame_buffer để stream lên web
-    - Lưu frame gốc theo từng track vào violation_frame_buffer[track_id]
-    - Nếu tốc độ vượt ngưỡng hoặc là vi phạm:
-        → Đẩy dữ liệu vào violation_queue (async)
-    - Tuyệt đối không vẽ bounding box lên frame dùng cho Telegram/Database
-    """
-    global current_detections, is_video_upload_mode, stream_queue, admin_frame_buffer, violation_frame_buffer, original_frame_buffer, violation_queue, detector, tracker
-    
+    """THREAD 2: Detection Worker - YOLO + Tracking + Speed"""
+    global current_detections, is_video_upload_mode, stream_queue, admin_frame_buffer, violation_frame_buffer, original_frame_buffer, violation_queue, detector, tracker, active_tracks, active_tracks_lock, video_fps
+
     # Khởi tạo detector nếu chưa có
     init_detector()
 
@@ -1884,73 +1537,59 @@ def detection_worker():
                 time.sleep(1)
                 continue
 
-        # AUTO CLEANUP: Mỗi 2 giây cleanup buffer cũ
         if time.time() - last_cleanup > 2.0:
             cleanup_old_buffers()
             last_cleanup = time.time()
 
         if len(detection_queue) == 0:
-            # TỐI ƯU: Khi upload video, giảm sleep time để xử lý nhanh hơn
             if is_video_upload_mode:
                 sleep_time = 0.0001 if DEVICE == 'cuda' else 0.0005
             else:
                 sleep_time = 0.0005 if DEVICE == 'cuda' else 0.001
             time.sleep(sleep_time)
             continue
-        
+
         try:
             frame_data = detection_queue.popleft()
             detect_frame = frame_data['frame']
             original_frame = frame_data['original']
-            frame_id = frame_data.get('frame_id', frame_data.get('id', 0))
-            
+            # USE frame_number (actual frame in source video) NOT frame_id (counter)
+            frame_id = frame_data.get('frame_number', frame_data.get('frame_id', frame_data.get('id', 0)))
+
             # Kiểm tra detector trước khi sử dụng
             if detector is None:
                 init_detector()
                 if detector is None:
                     print("[ERROR] Detection worker: Detector is None, skipping frame")
                     continue
-            
-            # Detect xe + FastALPR (tối đa 2 biển số mỗi frame)
-            # enable_plate_detection=True: Chạy FastALPR tối đa 2 biển số để tránh chậm
+
             detections = detector.detect(detect_frame, enable_plate_detection=True)
-            
-            # Tạo admin_frame để vẽ bbox (từ original_frame)
             admin_frame = original_frame.copy()
-            
-            # Scale lại bbox về kích thước gốc nếu cần (CHÍNH XÁC HÓA)
+
             if DETECTION_SCALE < 1.0:
                 original_h, original_w = original_frame.shape[:2]
                 detect_h, detect_w = detect_frame.shape[:2]
                 scale_x = original_w / detect_w
                 scale_y = original_h / detect_h
-                
+
                 for det in detections:
                     x1, y1, x2, y2 = det['vehicle_bbox']
-                    # Scale chính xác hơn - dùng float trước rồi mới làm tròn
                     new_x1 = max(0, min(int(x1 * scale_x + 0.5), original_w - 1))
                     new_y1 = max(0, min(int(y1 * scale_y + 0.5), original_h - 1))
                     new_x2 = max(new_x1 + 1, min(int(x2 * scale_x + 0.5), original_w))
                     new_y2 = max(new_y1 + 1, min(int(y2 * scale_y + 0.5), original_h))
-                    
                     det['vehicle_bbox'] = (new_x1, new_y1, new_x2, new_y2)
-                    
-                    # LƯU Ý: plate_bbox sẽ luôn là None vì không chạy ALPR trong detection worker
-                    # ALPR sẽ chạy async trong ALPR worker thread
-            
-            # Xử lý từng detection và vẽ bbox lên admin_frame
+
             new_detections = {}
             for detection in detections:
                 track_id = detection['track_id']
                 vehicle_bbox = detection['vehicle_bbox']
                 vehicle_class = detection['vehicle_class']
-                plate = detection.get('plate')  # Biển số từ FastALPR (có thể None)
-                plate_bbox = detection.get('plate_bbox')  # Bbox biển số (có thể None)
-                
-                # Tính tốc độ
+                plate = detection.get('plate')
+                plate_bbox = detection.get('plate_bbox')
+
                 speed = tracker.update(track_id, vehicle_bbox)
-                
-                # Smooth speed với detection cũ
+
                 if track_id in current_detections:
                     old_det = current_detections[track_id]
                     if old_det.get('speed') is not None:
@@ -1958,42 +1597,95 @@ def detection_worker():
                             speed = 0.75 * speed + 0.25 * old_det['speed']
                         else:
                             speed = old_det['speed']
-                
+
                 detection['speed'] = speed
                 new_detections[track_id] = detection
-                
-                # Lưu frame gốc theo track_id vào original_frame_buffer[track_id]
-                # Dùng để crop xe và biển số, tạo video clean
-                if track_id not in original_frame_buffer:
-                    original_frame_buffer[track_id] = deque(maxlen=90)
-                original_frame_buffer[track_id].append({
-                    'frame': original_frame.copy(),
-                    'frame_id': frame_id,
-                    'timestamp': time.time()
-                })
-                
-                # Vẽ bbox lên admin_frame (chỉ cho admin stream)
+
+                # NEW: Update active_tracks (video_reader sẽ tự động buffer frames)
+                with active_tracks_lock:
+                    active_tracks[track_id] = time.time()
+
+                # REMOVED: Không còn cần populate original_frame_buffer ở đây
+                # video_reader đã handle việc buffer MỌI frame cho active tracks rồi
+
                 try:
                     detector.draw_detections(admin_frame, detection, speed, speed_limit)
                 except Exception as e:
                     print(f"[DETECT THREAD] Error drawing detection: {e}")
-                
-                # Lưu frame gốc vào violation_frame_buffer[track_id] nếu vi phạm
-                # Frame này KHÔNG có bbox, dùng để tạo video clean gửi Telegram
+
                 if speed and speed > speed_limit:
-                    # NEW: Sử dụng recording management
                     start_recording_violation(track_id)
                     update_recording(track_id, original_frame)
 
-                    now = time.time()
-                    # Dùng track_id + plate làm cooldown key
-                    cooldown_key = f"{track_id}_{plate}" if plate else f"{track_id}"
-                    if cooldown_key not in last_violation_time or \
-                       now - last_violation_time[cooldown_key] >= VIOLATION_COOLDOWN:
-                        last_violation_time[cooldown_key] = now
+                    # NEW: Track violation frame number for video extraction
+                    if track_id not in violation_frame_buffer:
+                        violation_frame_buffer[track_id] = {
+                            'frames': deque(maxlen=150),
+                            'last_update': time.time()
+                        }
 
-                        # 6-THREAD ARCHITECTURE: Đẩy vào alpr_realtime_queue để ALPR Worker xử lý
-                        # KHÔNG chạy FastALPR trong Detection Thread nữa
+                    # Save violation frame number
+                    violation_frame_buffer[track_id]['violation_frame'] = frame_id
+                    violation_frame_buffer[track_id]['violation_timestamp'] = frame_id / video_fps if video_fps > 0 else 0
+
+                    print(f"[DETECTION] 📍 Violation frame: {frame_id}, timestamp: {frame_id / video_fps:.2f}s")
+                    print(f"[DETECTION] 🎯 This is ACTUAL frame {frame_id} in source video (not counter)")
+
+                    # FIX: Sử dụng can_save_violation để kiểm tra cooldown (đồng bộ logic)
+                    # DEBUG: Log để kiểm tra
+                    print(f"[DETECTION] 🔍 Checking violation: track_id={track_id}, plate={plate}, speed={speed:.1f} km/h")
+                    can_save = can_save_violation(track_id, plate)
+                    print(f"[DETECTION] 🔍 can_save_violation(track_id={track_id}, plate={plate}) = {can_save}")
+                    if not can_save:
+                        print(f"[DETECTION] ⏳ Bỏ qua vi phạm trùng lặp: track_id={track_id}, plate={plate}")
+                        continue
+                    print(f"[DETECTION] ✅ Cho phép lưu vi phạm: track_id={track_id}, plate={plate}")
+
+                    # PRE-BUFFERING: Copy TẤT CẢ frames từ original_frame_buffer vào violation_frame_buffer
+                    # Bao gồm CẢ frames TRƯỚC + SAU vi phạm
+                    if track_id in original_frame_buffer and len(original_frame_buffer[track_id]) > 0:
+                        all_frames = list(original_frame_buffer[track_id])
+                        
+                        # Extract chỉ frame data (bỏ dict wrapper)
+                        frames_only = []
+                        for frame_data in all_frames:
+                            if isinstance(frame_data, dict) and 'frame' in frame_data:
+                                frames_only.append(frame_data['frame'])
+                            else:
+                                frames_only.append(frame_data)
+                        
+                        # Lưu vào violation_frame_buffer
+                        if track_id not in violation_frame_buffer:
+                            violation_frame_buffer[track_id] = {
+                                'frames': deque(maxlen=150),
+                                'last_update': time.time()
+                            }
+                        
+                        # Thêm tất cả frames vào buffer
+                        for f in frames_only:
+                            violation_frame_buffer[track_id]['frames'].append(f.copy())
+                        
+                        print(f"[DETECTION] 📹 Copied {len(frames_only)} frames to violation buffer for track {track_id} (includes frames BEFORE violation)")
+
+                    plate_from_cache = None
+                    with alpr_cache_lock:
+                        x1, y1, x2, y2 = vehicle_bbox
+                        vehicle_center_x = (x1 + x2) / 2
+                        vehicle_center_y = (y1 + y2) / 2
+
+                        min_distance = float('inf')
+                        best_cache_key = None
+                        for cache_key in alpr_proactive_cache:
+                            cx, cy = map(int, cache_key.split('_'))
+                            distance = ((vehicle_center_x - cx)**2 + (vehicle_center_y - cy)**2)**0.5
+                            if distance < min_distance and distance < 200:
+                                min_distance = distance
+                                best_cache_key = cache_key
+
+                        if best_cache_key:
+                            plate_from_cache = alpr_proactive_cache[best_cache_key]
+                            print(f"[DETECTION] ✅ Using cached plate: {plate_from_cache['plate']} (confidence: {plate_from_cache['confidence']:.2f})")
+
                         alpr_data = {
                             'track_id': track_id,
                             'detection': detection,
@@ -2001,20 +1693,18 @@ def detection_worker():
                             'full_frame': original_frame.copy(),
                             'vehicle_bbox': vehicle_bbox,
                             'vehicle_class': vehicle_class,
-                            'timestamp': time.time()
+                        'timestamp': time.time(),
+                        'cached_plate': plate_from_cache
                         }
 
-                        try:
-                            alpr_realtime_queue.put(alpr_data, block=False)
-                            print(f"[DETECT THREAD] ✅ Đẩy vào ALPR queue: track_id={track_id}, speed={speed:.1f}")
-                        except queue.Full:
-                            print(f"[DETECT THREAD] ⚠️ ALPR queue đầy, bỏ qua track_id={track_id}")
-            
-            # Cập nhật current_detections
+                    try:
+                        alpr_realtime_queue.put(alpr_data, block=False)
+                        print(f"[DETECT THREAD] ✅ Đẩy vào ALPR queue: track_id={track_id}, speed={speed:.1f}")
+                    except queue.Full:
+                        print(f"[DETECT THREAD] ⚠️ ALPR queue đầy, bỏ qua track_id={track_id}")
+
             current_detections = new_detections
-            
-            # Lưu frame_admin (có bbox) vào admin_frame_buffer để stream lên web
-            # Lưu vào buffer chung trước, sau đó video_generator sẽ lấy
+
             if 'global' not in admin_frame_buffer:
                 admin_frame_buffer['global'] = deque(maxlen=90)
             admin_frame_buffer['global'].append({
@@ -2022,38 +1712,88 @@ def detection_worker():
                 'frame_id': frame_id,
                 'timestamp': time.time()
             })
-            
-            # ĐẨY ADMIN_FRAME (CÓ BBOX) VÀO STREAM_QUEUE để hiển thị trên web
+
             try:
                 stream_queue.put(admin_frame, block=False)
             except queue.Full:
-                # Nếu queue đầy, bỏ qua frame này (không block)
                 pass
             
-            # TỐI ƯU MEMORY: Cleanup old tracks (chỉ giữ tracks đang active)
             active_track_ids = set(det['track_id'] for det in detections)
             tracker.cleanup_old_tracks(active_track_ids)
-            
+
         except Exception as e:
             print(f"[ERROR] Detection worker error: {e}")
 
-# ======================
-# THREAD 3: ALPR REALTIME WORKER (NEW - 6 THREAD ARCHITECTURE)
-# ======================
+def alpr_proactive_worker():
+    """THREAD MỚI: ALPR Proactive Worker - Detect plate TRƯỚC khi vi phạm"""
+    global alpr_proactive_queue, alpr_proactive_cache, alpr_cache_lock, detector, camera_running, plate_detector_post
+
+    print("[ALPR PROACTIVE] ✅ Worker started")
+
+    if detector is None:
+        init_detector()
+
+    while camera_running:
+        try:
+            frame_data = alpr_proactive_queue.get(timeout=1.0)
+            frame = frame_data['frame']
+            frame_id = frame_data['frame_id']
+            timestamp = frame_data['timestamp']
+
+            if plate_detector_post is not None:
+                plates_detected = plate_detector_post.detect(frame)
+
+                if plates_detected:
+                    with alpr_cache_lock:
+                        for plate_data in plates_detected:
+                            plate_text = plate_data.get('plate', '')
+                            bbox = plate_data.get('bbox', [])
+                            confidence = plate_data.get('confidence', 0.0)
+
+                            if not plate_text or len(bbox) != 4:
+                                continue
+
+                            x1, y1, x2, y2 = bbox
+                            center_x = (x1 + x2) / 2
+                            center_y = (y1 + y2) / 2
+
+                            cache_key = f"{int(center_x//50)*50}_{int(center_y//50)*50}"
+
+                            if cache_key not in alpr_proactive_cache or \
+                               confidence > alpr_proactive_cache[cache_key].get('confidence', 0):
+                                alpr_proactive_cache[cache_key] = {
+                                    'plate': plate_text,
+                                    'bbox': bbox,
+                                    'confidence': confidence,
+                                    'timestamp': timestamp,
+                                    'frame_id': frame_id
+                                }
+
+                    with alpr_cache_lock:
+                        current_time = timestamp
+                        keys_to_remove = []
+                        for key, value in alpr_proactive_cache.items():
+                            if current_time - value['timestamp'] > 5.0:
+                                keys_to_remove.append(key)
+                        for key in keys_to_remove:
+                            del alpr_proactive_cache[key]
+
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"[ALPR PROACTIVE] ❌ Error: {e}")
+            continue
+
+    print("[ALPR PROACTIVE] 🛑 Worker stopped")
+
 def alpr_realtime_worker():
-    """
-    THREAD 3: ALPR Realtime Worker
-    - Lấy item từ alpr_realtime_queue (từ Detection Thread)
-    - Chạy FastALPR để detect biển số
-    - Đẩy kết quả vào best_frame_queue
-    """
-    global alpr_realtime_queue, best_frame_queue, camera_running, plate_detector_post
+    """THREAD 3: ALPR Realtime Worker - FastALPR detect biển số"""
+    global alpr_realtime_queue, best_frame_queue, camera_running, plate_detector_post, alpr_proactive_cache, alpr_cache_lock
 
     print("[ALPR WORKER] ✅ Thread 3 - ALPR Realtime Worker đã khởi động")
 
     while camera_running:
         try:
-            # Lấy dữ liệu từ alpr_realtime_queue
             alpr_data = alpr_realtime_queue.get(timeout=1.0)
 
             track_id = alpr_data['track_id']
@@ -2063,62 +1803,63 @@ def alpr_realtime_worker():
             vehicle_bbox = alpr_data['vehicle_bbox']
             vehicle_class = alpr_data['vehicle_class']
             timestamp = alpr_data['timestamp']
+            cached_plate = alpr_data.get('cached_plate')
 
-            # Chạy FastALPR để detect biển số
             refined_plate = None
             refined_plate_bbox = None
             plate_crop = None
 
-            try:
-                # Crop vùng xe từ frame gốc để FastALPR detect chính xác hơn
-                x1, y1, x2, y2 = vehicle_bbox
-                padding = 100
-                crop_x1 = max(0, x1 - padding)
-                crop_y1 = max(0, y1 - padding)
-                crop_x2 = min(full_frame.shape[1], x2 + padding)
-                crop_y2 = min(full_frame.shape[0], y2 + padding)
+            if cached_plate and cached_plate.get('confidence', 0) > 0.7:
+                print(f"[ALPR REALTIME] 📋 Using cached plate: {cached_plate['plate']}")
+                refined_plate = cached_plate['plate']
+                refined_plate_bbox = cached_plate['bbox']
+            else:
+                try:
+                    x1, y1, x2, y2 = vehicle_bbox
+                    padding = 100
+                    crop_x1 = max(0, x1 - padding)
+                    crop_y1 = max(0, y1 - padding)
+                    crop_x2 = min(full_frame.shape[1], x2 + padding)
+                    crop_y2 = min(full_frame.shape[0], y2 + padding)
 
-                vehicle_region = full_frame[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+                    vehicle_region = full_frame[crop_y1:crop_y2, crop_x1:crop_x2].copy()
 
-                # Dùng FastALPR để detect biển số trên vùng xe
-                if plate_detector_post is not None:
-                    plate_results = plate_detector_post.detect(vehicle_region)
+                    if plate_detector_post is not None:
+                        plate_results = plate_detector_post.detect(vehicle_region)
 
-                    if plate_results and len(plate_results) > 0:
-                        best_plate = max(plate_results, key=lambda p: p.get('confidence', 0))
-                        detected_plate = best_plate.get('plate', '')
-                        normalized_detected = normalize_plate(detected_plate)
+                        if plate_results and len(plate_results) > 0:
+                            best_plate = max(plate_results, key=lambda p: p.get('confidence', 0))
+                            detected_plate = best_plate.get('plate', '')
+                            normalized_detected = normalize_plate(detected_plate)
 
-                        if normalized_detected and is_valid_plate(normalized_detected):
-                            refined_plate = normalized_detected
-                            print(f"[ALPR WORKER] ✅ FastALPR detect: {refined_plate}")
+                            if normalized_detected and is_valid_plate(normalized_detected):
+                                refined_plate = normalized_detected
+                                print(f"[ALPR WORKER] ✅ FastALPR detect: {refined_plate}")
 
-                            plate_bbox_local = best_plate.get('bbox')
-                            if plate_bbox_local:
-                                px1_local, py1_local, px2_local, py2_local = plate_bbox_local
-                                refined_plate_bbox = (
-                                    crop_x1 + px1_local,
-                                    crop_y1 + py1_local,
-                                    crop_x1 + px2_local,
-                                    crop_y1 + py2_local
-                                )
+                                plate_bbox_local = best_plate.get('bbox')
+                                if plate_bbox_local:
+                                    px1_local, py1_local, px2_local, py2_local = plate_bbox_local
+                                    refined_plate_bbox = (
+                                        crop_x1 + px1_local,
+                                        crop_y1 + py1_local,
+                                        crop_x1 + px2_local,
+                                        crop_y1 + py2_local
+                                    )
 
-                                # Crop plate với padding
-                                px1, py1, px2, py2 = refined_plate_bbox
-                                padding_x = max(10, int((px2 - px1) * 0.2))
-                                padding_y = max(5, int((py2 - py1) * 0.2))
+                                    px1, py1, px2, py2 = refined_plate_bbox
+                                    padding_x = max(10, int((px2 - px1) * 0.2))
+                                    padding_y = max(5, int((py2 - py1) * 0.2))
 
-                                px1_padded = max(0, px1 - padding_x)
-                                py1_padded = max(0, py1 - padding_y)
-                                px2_padded = min(full_frame.shape[1], px2 + padding_x)
-                                py2_padded = min(full_frame.shape[0], py2 + padding_y)
+                                    px1_padded = max(0, px1 - padding_x)
+                                    py1_padded = max(0, py1 - padding_y)
+                                    px2_padded = min(full_frame.shape[1], px2 + padding_x)
+                                    py2_padded = min(full_frame.shape[0], py2 + padding_y)
 
-                                if px2_padded > px1_padded and py2_padded > py1_padded:
-                                    plate_crop = full_frame[py1_padded:py2_padded, px1_padded:px2_padded].copy()
-            except Exception as e:
-                print(f"[ALPR WORKER] Lỗi FastALPR: {e}")
+                                    if px2_padded > px1_padded and py2_padded > py1_padded:
+                                        plate_crop = full_frame[py1_padded:py2_padded, px1_padded:px2_padded].copy()
+                except Exception as e:
+                    print(f"[ALPR WORKER] Lỗi FastALPR: {e}")
 
-            # Đẩy vào best_frame_queue
             best_frame_data = {
                 'track_id': track_id,
                 'detection': detection,
@@ -2144,16 +1885,8 @@ def alpr_realtime_worker():
             print(f"[ALPR WORKER] Lỗi: {e}")
             time.sleep(0.1)
 
-# ======================
-# THREAD 4: BEST FRAME SELECTOR (NEW - 6 THREAD ARCHITECTURE)
-# ======================
 def best_frame_selector_worker():
-    """
-    THREAD 4: Best Frame Selector Worker
-    - Lấy item từ best_frame_queue
-    - Chọn frame tốt nhất từ violation_frame_buffer
-    - Đẩy kết quả vào violation_queue
-    """
+    """THREAD 4: Best Frame Selector - Chọn frame tốt nhất"""
     global best_frame_queue, violation_queue, violation_frame_buffer, camera_running
 
     print("[BEST FRAME] ✅ Thread 4 - Best Frame Selector đã khởi động")
@@ -2183,6 +1916,30 @@ def best_frame_selector_worker():
             # Cập nhật full_frame với best_frame
             data['full_frame'] = best_frame
 
+            # FIX: Thêm violation_timestamp và violation_frame vào data
+            # Lấy từ violation_frame_buffer (đã được set trong detection_worker)
+            print(f"[BEST FRAME DEBUG] track_id={track_id} in violation_frame_buffer? {track_id in violation_frame_buffer}")
+
+            if track_id in violation_frame_buffer:
+                buffer_data = violation_frame_buffer[track_id]
+                print(f"[BEST FRAME DEBUG] buffer_data type: {type(buffer_data)}")
+                print(f"[BEST FRAME DEBUG] buffer_data keys: {list(buffer_data.keys()) if isinstance(buffer_data, dict) else 'not dict'}")
+
+                if isinstance(buffer_data, dict):
+                    vts = buffer_data.get('violation_timestamp')
+                    vfr = buffer_data.get('violation_frame')
+                    print(f"[BEST FRAME DEBUG] violation_timestamp from buffer: {vts}")
+                    print(f"[BEST FRAME DEBUG] violation_frame from buffer: {vfr}")
+
+                    data['violation_timestamp'] = vts
+                    data['violation_frame'] = vfr
+                    print(f"[BEST FRAME] 📍 Added violation info: frame={data.get('violation_frame')}, timestamp={data.get('violation_timestamp')}")
+                else:
+                    print(f"[BEST FRAME DEBUG] ❌ buffer_data is not dict!")
+            else:
+                print(f"[BEST FRAME DEBUG] ❌ track_id {track_id} NOT in violation_frame_buffer!")
+                print(f"[BEST FRAME DEBUG] Available track_ids in buffer: {list(violation_frame_buffer.keys())}")
+
             # Đẩy vào violation_queue
             try:
                 violation_queue.put(data, block=False)
@@ -2196,26 +1953,17 @@ def best_frame_selector_worker():
             print(f"[BEST FRAME] Lỗi: {e}")
             time.sleep(0.1)
 
-# ======================
-# THREAD 5: VIOLATION THREAD
-# ======================
 def violation_worker():
-    """
-    THREAD 5: Violation Worker Thread (violation_worker)
-    - Lấy item từ violation_queue (từ Best Frame Selector)
-    - Lưu ảnh/video sạch vào ổ cứng
-    - Viết bản ghi MySQL
-    - Đẩy message vào telegram_queue
-    """
-    global violation_queue, telegram_queue, original_frame_buffer, violation_frame_buffer, camera_running, video_fps, mysql, app, speed_limit
-    
+    """THREAD 5: Violation Worker - Lưu ảnh/video và database"""
+    global violation_queue, telegram_queue, original_frame_buffer, violation_frame_buffer, camera_running, video_fps, mysql, app, speed_limit, current_video_path
+
     print("[VIOLATION THREAD] ✅ Đã khởi động")
-    
+
     while camera_running:
         try:
             # Lấy dữ liệu vi phạm từ violation_queue
             violation_data = violation_queue.get(timeout=1.0)
-            
+
             track_id = violation_data['track_id']
             detection = violation_data['detection']
             speed = violation_data['speed']
@@ -2227,144 +1975,436 @@ def violation_worker():
             vehicle_class = violation_data['vehicle_class']
             timestamp = violation_data['timestamp']
 
-            # ✅ KIỂM TRA CHỐNG TRÙNG LẶP VI PHẠM (backup check)
-            if not can_save_violation(track_id):
-                print(f"[VIOLATION THREAD] ⏳ Bỏ qua vi phạm trùng lặp: track_id={track_id}")
-                continue
-
             print(f"[VIOLATION THREAD] Xử lý vi phạm: track_id={track_id}, plate={plate}, speed={speed:.2f} km/h, có plate_crop={plate_crop is not None}")
-            
-            # Kiểm tra full_frame có sẵn không
+
             if full_frame is None:
                 print(f"[VIOLATION THREAD] ⚠️ Không có full_frame trong violation_data, bỏ qua")
                 continue
 
-            # NEW: Chọn best frame từ buffer (nếu có)
+            # FIX: Luôn dùng full_frame để crop (đảm bảo bbox đúng với frame)
+            # best_frame chỉ dùng để chọn frame tốt nhất, nhưng crop vẫn dùng full_frame
             best_frame = full_frame
             if track_id in violation_frame_buffer:
                 buffer_data = violation_frame_buffer[track_id]
                 if isinstance(buffer_data, dict) and 'frames' in buffer_data:
                     frames_list = list(buffer_data['frames'])
                     if frames_list:
-                        best_frame = select_best_frame(frames_list, vehicle_bbox)
-                        if best_frame is not None:
-                            print(f"[VIOLATION THREAD] ✅ Đã chọn best frame từ {len(frames_list)} frames")
+                        selected_best = select_best_frame(frames_list, vehicle_bbox)
+                        if selected_best is not None:
+                            # Kiểm tra resolution của best_frame và full_frame
+                            best_h, best_w = selected_best.shape[:2]
+                            full_h, full_w = full_frame.shape[:2]
+                            
+                            if best_h == full_h and best_w == full_w:
+                                # Cùng resolution: dùng best_frame
+                                best_frame = selected_best
+                                print(f"[VIOLATION THREAD] ✅ Đã chọn best frame từ {len(frames_list)} frames (resolution match)")
+                            else:
+                                # Khác resolution: resize best_frame về full_frame resolution
+                                best_frame = cv2.resize(selected_best, (full_w, full_h), interpolation=cv2.INTER_LINEAR)
+                                print(f"[VIOLATION THREAD] ✅ Đã chọn best frame và resize về {full_w}x{full_h}")
                         else:
                             best_frame = full_frame
 
-            # Crop xe từ best_frame
-            x1, y1, x2, y2 = vehicle_bbox
+            # FIX: Đảm bảo vehicle_bbox hợp lệ và crop đúng
+            x1, y1, x2, y2 = [int(v) for v in vehicle_bbox]
+            
+            # Kiểm tra bbox hợp lệ
+            if x2 <= x1 or y2 <= y1:
+                print(f"[VIOLATION THREAD] ⚠️ Invalid bbox: ({x1}, {y1}, {x2}, {y2}), using full_frame")
+                best_frame = full_frame
+                x1, y1, x2, y2 = 0, 0, best_frame.shape[1], best_frame.shape[0]
+            
+            # Đảm bảo bbox nằm trong frame
+            x1 = max(0, min(x1, best_frame.shape[1] - 1))
+            y1 = max(0, min(y1, best_frame.shape[0] - 1))
+            x2 = max(x1 + 1, min(x2, best_frame.shape[1]))
+            y2 = max(y1 + 1, min(y2, best_frame.shape[0]))
+            
             padding = 50
             crop_x1 = max(0, x1 - padding)
             crop_y1 = max(0, y1 - padding)
             crop_x2 = min(best_frame.shape[1], x2 + padding)
             crop_y2 = min(best_frame.shape[0], y2 + padding)
 
-            vehicle_crop = best_frame[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+            # FIX: Đảm bảo crop hợp lệ
+            if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+                vehicle_crop = best_frame[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+                print(f"[VIOLATION THREAD] ✅ Crop vehicle: ({crop_x1}, {crop_y1}, {crop_x2}, {crop_y2}) from frame {best_frame.shape}, vehicle_crop size: {vehicle_crop.shape}")
+            else:
+                print(f"[VIOLATION THREAD] ⚠️ Invalid crop coordinates, using full frame")
+                vehicle_crop = best_frame.copy()
+                crop_x1, crop_y1 = 0, 0
             
-            # plate_crop đã được crop trong Detection Thread từ cùng full_frame
-            # Không cần crop lại, chỉ cần sử dụng plate_crop từ queue
-
-            # Tạo video clean từ violation_frame_buffer[track_id] (không có bbox)
-            video_clean_path = None
-            if track_id in violation_frame_buffer:
+            # FIX: Detect lại plate TRỰC TIẾP trên vehicle_crop để đảm bảo chính xác 100%
+            # Không dùng plate_bbox từ full_frame vì có thể bị sai do resolution mismatch
+            plate_crop = None
+            
+            # Đảm bảo plate_detector_post được khởi tạo
+            if plate_detector_post is None:
+                init_detector()
+            
+            if plate_detector_post is not None:
                 try:
-                    buffer_data = violation_frame_buffer[track_id]
-                    frames_to_write = []
-
-                    # Extract frames từ buffer (hỗ trợ cả dict và deque)
-                    if isinstance(buffer_data, dict) and 'frames' in buffer_data:
-                        frames_to_write = list(buffer_data['frames'])
-                    elif isinstance(buffer_data, deque):
-                        frames_to_write = list(buffer_data)
-
-                    if len(frames_to_write) > 0:
-                        h, w = full_frame.shape[:2]
-                        fps = video_fps if video_fps > 0 else 30
-                        timestamp_str = int(time.time())
-
-                        video_clean_name = f"violation_clean_{timestamp_str}_{track_id}.mp4"
-                        video_clean_path = os.path.join("static/violation_videos", video_clean_name)
-
-                        # Tạo video writer với codec tối ưu
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                        out = cv2.VideoWriter(video_clean_path, fourcc, fps, (w, h))
-
-                        if out.isOpened():
-                            for frame_item in frames_to_write:
-                                frame = frame_item if not isinstance(frame_item, dict) else frame_item
-                                out.write(frame)
-                            out.release()
-                            print(f"[VIOLATION THREAD] ✅ Đã tạo video clean: {video_clean_name} ({len(frames_to_write)} frames)")
+                    print(f"[VIOLATION THREAD] 🔍 Detecting plate trực tiếp trên vehicle_crop (size: {vehicle_crop.shape})")
+                    plate_results = plate_detector_post.detect(vehicle_crop)
+                    
+                    if plate_results and len(plate_results) > 0:
+                        # Chọn plate có confidence cao nhất
+                        best_plate = max(plate_results, key=lambda p: p.get('confidence', 0))
+                        detected_plate_bbox = best_plate.get('bbox')
+                        detected_plate_text = best_plate.get('plate', '')
+                        detected_confidence = best_plate.get('confidence', 0)
+                        
+                        print(f"[VIOLATION THREAD] ✅ Detected plate trên vehicle_crop: {detected_plate_text} (conf: {detected_confidence:.2f})")
+                        
+                        if detected_plate_bbox and len(detected_plate_bbox) == 4:
+                            px1, py1, px2, py2 = [int(v) for v in detected_plate_bbox]
+                            
+                            # Validate bbox
+                            vehicle_h, vehicle_w = vehicle_crop.shape[:2]
+                            px1 = max(0, min(px1, vehicle_w - 1))
+                            py1 = max(0, min(py1, vehicle_h - 1))
+                            px2 = max(px1 + 1, min(px2, vehicle_w))
+                            py2 = max(py1 + 1, min(py2, vehicle_h))
+                            
+                            if px2 > px1 and py2 > py1:
+                                # Thêm padding cho plate crop (20% mỗi bên)
+                                plate_width = px2 - px1
+                                plate_height = py2 - py1
+                                padding_x = max(10, int(plate_width * 0.2))
+                                padding_y = max(5, int(plate_height * 0.2))
+                                
+                                px1_padded = max(0, px1 - padding_x)
+                                py1_padded = max(0, py1 - padding_y)
+                                px2_padded = min(vehicle_w, px2 + padding_x)
+                                py2_padded = min(vehicle_h, py2 + padding_y)
+                                
+                                if px2_padded > px1_padded and py2_padded > py1_padded:
+                                    plate_crop = vehicle_crop[py1_padded:py2_padded, px1_padded:px2_padded].copy()
+                                    print(f"[VIOLATION THREAD] ✅ Đã crop plate từ vehicle_crop: size={plate_crop.shape}, bbox=({px1_padded}, {py1_padded}, {px2_padded}, {py2_padded})")
+                                    
+                                    # Cập nhật plate text nếu detect được
+                                    if detected_plate_text and is_valid_plate(normalize_plate(detected_plate_text)):
+                                        plate = normalize_plate(detected_plate_text)
+                                        print(f"[VIOLATION THREAD] ✅ Cập nhật plate từ vehicle_crop detection: {plate}")
+                                else:
+                                    print(f"[VIOLATION THREAD] ⚠️ Invalid plate crop coordinates after padding")
+                            else:
+                                print(f"[VIOLATION THREAD] ⚠️ Invalid plate bbox: ({px1}, {py1}, {px2}, {py2})")
                         else:
-                            print(f"[VIOLATION THREAD] ⚠️ Không thể tạo video writer")
-                            video_clean_path = None
+                            print(f"[VIOLATION THREAD] ⚠️ Plate bbox không hợp lệ từ detection")
+                    else:
+                        print(f"[VIOLATION THREAD] ⚠️ Không detect được plate trên vehicle_crop")
                 except Exception as e:
-                    print(f"[VIOLATION THREAD] Lỗi tạo video clean: {e}")
+                    print(f"[VIOLATION THREAD] ⚠️ Lỗi detect plate trên vehicle_crop: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Fallback: Nếu không detect được, sử dụng plate_crop từ alpr_realtime_worker
+            if plate_crop is None and violation_data.get('plate_crop') is not None:
+                plate_crop = violation_data.get('plate_crop')
+                print(f"[VIOLATION THREAD] ⚠️ Fallback: sử dụng plate_crop từ alpr_realtime_worker")
+            # ============================================================================
+            # CREATE 5-SECOND VIOLATION VIDEO (FFmpeg + OpenCV hybrid)
+            # ============================================================================
+            video_clean_path = None
+
+            # DEBUG: Check current_video_path
+            print(f"[VIDEO DEBUG] current_video_path = {current_video_path}")
+            print(f"[VIDEO DEBUG] exists = {os.path.exists(current_video_path) if current_video_path else False}")
+
+            if current_video_path and os.path.exists(current_video_path):
+                try:
+                    # Get violation info - Priority: từ violation_data (đã được thêm bởi best_frame_selector)
+                    print(f"[VIDEO DEBUG] ===== START VIDEO CREATION DEBUG =====")
+                    print(f"[VIDEO DEBUG] track_id = {track_id}")
+                    print(f"[VIDEO DEBUG] violation_data keys = {list(violation_data.keys())}")
+
+                    violation_timestamp = violation_data.get('violation_timestamp')
+                    violation_frame_num = violation_data.get('violation_frame')
+
+                    print(f"[VIDEO DEBUG] violation_timestamp from queue data = {violation_timestamp}")
+                    print(f"[VIDEO DEBUG] violation_frame_num from queue data = {violation_frame_num}")
+
+                    # Fallback: lấy từ violation_frame_buffer nếu chưa có
+                    if violation_timestamp is None and violation_frame_num is None:
+                        print(f"[VIDEO DEBUG] ⚠️ Data from queue is None, trying buffer fallback...")
+                        violation_info = violation_frame_buffer.get(track_id, {})
+                        print(f"[VIDEO DEBUG] violation_info from buffer = {violation_info}")
+                        violation_timestamp = violation_info.get('violation_timestamp')
+                        violation_frame_num = violation_info.get('violation_frame')
+                        print(f"[VIDEO DEBUG] violation_timestamp from buffer = {violation_timestamp}")
+                        print(f"[VIDEO DEBUG] violation_frame_num from buffer = {violation_frame_num}")
+                        print(f"[VIDEO DEBUG] Using violation info from buffer")
+                    else:
+                        print(f"[VIDEO DEBUG] ✅ Using violation info from queue data")
+
+                    # DEBUG: Check violation info
+                    print(f"[VIDEO DEBUG] FINAL violation_timestamp = {violation_timestamp}")
+                    print(f"[VIDEO DEBUG] FINAL violation_frame_num = {violation_frame_num}")
+                    print(f"[VIDEO DEBUG] ===== END VIDEO CREATION DEBUG =====")
+
+                    if violation_timestamp is None and violation_frame_num is None:
+                        print(f"[VIOLATION THREAD] ⚠️  No violation info for track {track_id}")
+                        print(f"[VIOLATION THREAD] ⚠️  Cannot create video without timestamp or frame number")
+                    else:
+                        # Generate organized folder structure: YYYY/MM/DD/plate/
+                        from datetime import datetime
+                        now = datetime.now()
+
+                        # Get normalized plate for folder name
+                        plate_folder = normalize_plate(plate) if plate else f"UNKNOWN_{track_id}"
+                        # Replace invalid characters for folder name
+                        plate_folder = plate_folder.replace('/', '_').replace('\\', '_').replace(':', '_')
+
+                        # Create date-based folder structure
+                        date_folder = os.path.join(
+                            "static/violation_videos",
+                            now.strftime("%Y"),
+                            now.strftime("%m"),
+                            now.strftime("%d"),
+                            plate_folder
+                        )
+                        os.makedirs(date_folder, exist_ok=True)
+
+                        # Generate filename with datetime
+                        timestamp_str = now.strftime("%Y%m%d_%H%M%S")
+                        video_clean_name = f"violation_{timestamp_str}_{track_id}.mp4"
+                        video_clean_path = os.path.join(date_folder, video_clean_name)
+
+                        print(f"[VIDEO] 📁 Organized path: {date_folder}")
+                        print(f"[VIDEO] 📝 Filename: {video_clean_name}")
+
+                        # Initialize video_created flag
+                        video_created = False
+
+                        # DEBUG: Log conditions for video creation
+                        print(f"[VIDEO DEBUG] ===== VIDEO CREATION CONDITIONS =====")
+                        print(f"[VIDEO DEBUG] FFMPEG_AVAILABLE = {FFMPEG_AVAILABLE}")
+                        print(f"[VIDEO DEBUG] violation_timestamp = {violation_timestamp}")
+                        print(f"[VIDEO DEBUG] violation_frame_num = {violation_frame_num}")
+                        print(f"[VIDEO DEBUG] video_created (initial) = {video_created}")
+                        print(f"[VIDEO DEBUG] =====================================")
+
+                        # ========================================
+                        # METHOD 1: Try FFmpeg first (FASTEST + BEST QUALITY)
+                        # ========================================
+                        if FFMPEG_AVAILABLE and violation_timestamp is not None:
+                            print(f"[VIDEO DEBUG] → Entering FFmpeg block")
+                            # Calculate extraction window (2s before + 3s after = 5s)
+                            pre_duration = 2.0
+                            total_duration = 5.0
+                            start_time = max(0, violation_timestamp - pre_duration)
+
+                            print(f"[VIOLATION THREAD] 🎬 Creating video with FFmpeg:")
+                            print(f"   - Violation at: {violation_timestamp:.2f}s")
+                            print(f"   - Extract from: {start_time:.2f}s to {start_time + total_duration:.2f}s")
+
+                            success, message = create_video_with_ffmpeg(
+                                source_video_path=current_video_path,
+                                output_path=video_clean_path,
+                                start_time=start_time,
+                                duration=total_duration
+                            )
+
+                            if success:
+                                print(f"[VIOLATION THREAD] ✅ Video created with FFmpeg: {message}")
+                                video_created = True
+                            else:
+                                print(f"[VIOLATION THREAD] ⚠️  FFmpeg failed: {message}")
+                                print(f"[VIOLATION THREAD] 🔄 Falling back to OpenCV...")
+                                video_clean_path = None
+
+                        # ========================================
+                        # METHOD 2: Fallback to OpenCV (if FFmpeg not available or failed)
+                        # ========================================
+                        print(f"[VIDEO DEBUG] Checking OpenCV condition: video_created={video_created}, violation_frame_num={violation_frame_num}")
+                        if not video_created and violation_frame_num is not None:
+                            print(f"[VIDEO DEBUG] → Entering OpenCV block")
+                            print(f"[VIOLATION THREAD] 🎬 Creating video with OpenCV:")
+                            print(f"   - Source: {current_video_path}")
+                            print(f"   - Violation frame: {violation_frame_num}")
+
+                            cap_source = cv2.VideoCapture(current_video_path)
+
+                            if not cap_source.isOpened():
+                                print(f"[VIOLATION THREAD] ❌ Cannot open source video")
+                            else:
+                                # Get video properties
+                                source_fps = cap_source.get(cv2.CAP_PROP_FPS)
+                                source_width = int(cap_source.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                source_height = int(cap_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                                total_frames = int(cap_source.get(cv2.CAP_PROP_FRAME_COUNT))
+
+                                print(f"   - FPS: {source_fps}, Resolution: {source_width}x{source_height}")
+
+                                # Calculate frame range (2s before + 3s after = 5s)
+                                pre_frames = int(source_fps * 2.0)
+                                post_frames = int(source_fps * 3.0)
+
+                                start_frame = max(0, violation_frame_num - pre_frames)
+                                end_frame = min(total_frames, violation_frame_num + post_frames)
+
+                                total_extract_frames = end_frame - start_frame
+
+                                print(f"   - Extract frames: {start_frame} to {end_frame} ({total_extract_frames} frames)")
+
+                                # Seek to start frame
+                                cap_source.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+                                # Initialize VideoWriter
+                                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                                out = cv2.VideoWriter(
+                                    video_clean_path,
+                                    fourcc,
+                                    source_fps,
+                                    (source_width, source_height)
+                                )
+
+                                if not out.isOpened():
+                                    print(f"[VIOLATION THREAD] ❌ Cannot create VideoWriter")
+                                    cap_source.release()
+                                    video_clean_path = None
+                                else:
+                                    # Extract and write frames
+                                    frames_written = 0
+                                    current_frame = start_frame
+
+                                    while current_frame < end_frame:
+                                        ret, frame = cap_source.read()
+                                        if not ret:
+                                            print(f"[VIOLATION THREAD] ⚠️  End of video at frame {current_frame}")
+                                            break
+
+                                        out.write(frame)
+                                        frames_written += 1
+                                        current_frame += 1
+
+                                        # Progress every 30 frames
+                                        if frames_written % 30 == 0:
+                                            print(f"   - Progress: {frames_written}/{total_extract_frames} frames")
+
+                                    # Release resources
+                                    out.release()
+                                    cap_source.release()
+
+                                    # Verify output
+                                    if os.path.exists(video_clean_path) and os.path.getsize(video_clean_path) > 0:
+                                        file_size = os.path.getsize(video_clean_path) / 1024
+                                        actual_duration = frames_written / source_fps
+
+                                        print(f"[VIOLATION THREAD] ✅ Video created with OpenCV:")
+                                        print(f"   - File: {video_clean_name}")
+                                        print(f"   - Frames: {frames_written}")
+                                        print(f"   - Duration: {actual_duration:.2f}s")
+                                        print(f"   - Size: {file_size:.1f} KB")
+                                        video_created = True
+                                    else:
+                                        print(f"[VIOLATION THREAD] ❌ Output file empty")
+                                        video_clean_path = None
+                        else:
+                            print(f"[VIDEO DEBUG] ❌ Skipped OpenCV block:")
+                            print(f"[VIDEO DEBUG]    - video_created = {video_created}")
+                            print(f"[VIDEO DEBUG]    - violation_frame_num = {violation_frame_num}")
+
+                except Exception as e:
+                    print(f"[VIOLATION THREAD] ❌ Error creating video: {e}")
                     import traceback
                     traceback.print_exc()
                     video_clean_path = None
-            
-            # CHỈ LƯU ẢNH NẾU BIỂN SỐ HỢP LỆ
-            # Validate biển số trước khi lưu ảnh
+            else:
+                print(f"[VIOLATION THREAD] ⚠️  Source video not available")
+                video_clean_path = None
+
+            # ============================================================================
+            # Continue with existing code (save images, database, telegram)
+            # ============================================================================
+
             normalized_plate = normalize_plate(plate) if plate else None
             is_plate_valid = normalized_plate and is_valid_plate(normalized_plate)
+
+            # FIX: Chỉ kiểm tra cooldown SAU KHI đã validate plate
+            # Nếu plate không hợp lệ, vẫn cho phép lưu (dùng track_id làm key)
+            # DEBUG: Log để kiểm tra
+            print(f"[VIOLATION THREAD] 🔍 Checking violation: track_id={track_id}, plate={plate}, is_valid={is_plate_valid}, speed={speed:.1f}")
             
-            if not is_plate_valid:
-                print(f"[VIOLATION THREAD] ❌ Biển số không hợp lệ '{plate}' (normalized: {normalized_plate}), KHÔNG lưu ảnh và KHÔNG gửi Telegram")
-                continue  # Bỏ qua vi phạm này, không lưu ảnh và không gửi
-            
-            # Lưu ảnh xe và biển số vào ổ cứng (CHỈ KHI BIỂN SỐ HỢP LỆ)
-            os.makedirs("static/uploads", exist_ok=True)
-            os.makedirs("static/plate_images", exist_ok=True)
-            
-            timestamp_str = int(time.time())
+            if is_plate_valid:
+                # Có plate hợp lệ: dùng plate làm key
+                can_save = can_save_violation(track_id, plate)
+                print(f"[VIOLATION THREAD] 🔍 can_save_violation(plate={plate}) = {can_save}")
+                if not can_save:
+                    print(f"[VIOLATION THREAD] ⏳ Bỏ qua vi phạm trùng lặp: track_id={track_id}, plate={plate}")
+                    continue
+            else:
+                # Không có plate hợp lệ: dùng track_id làm key, nhưng vẫn cho phép lưu
+                can_save = can_save_violation(track_id, None)
+                print(f"[VIOLATION THREAD] 🔍 can_save_violation(track_id={track_id}, plate=None) = {can_save}")
+                if not can_save:
+                    print(f"[VIOLATION THREAD] ⏳ Bỏ qua vi phạm trùng lặp: track_id={track_id} (không có plate hợp lệ)")
+                    continue
+                print(f"[VIOLATION THREAD] ⚠️ Biển số không hợp lệ '{plate}' (normalized: {normalized_plate}), nhưng vẫn lưu vi phạm với track_id")
+
+            # Generate organized folder structure for images: YYYY/MM/DD/plate/
+            from datetime import datetime
+            now = datetime.now()
+
+            # Get normalized plate for folder name
+            plate_folder = normalize_plate(plate) if plate else f"UNKNOWN_{track_id}"
+            # Replace invalid characters for folder name
+            plate_folder = plate_folder.replace('/', '_').replace('\\', '_').replace(':', '_')
+
+            # Create date-based folder structure (same as video)
+            images_folder = os.path.join(
+                "static/violation_videos",
+                now.strftime("%Y"),
+                now.strftime("%m"),
+                now.strftime("%d"),
+                plate_folder
+            )
+            os.makedirs(images_folder, exist_ok=True)
+
+            # Generate filename with datetime
+            timestamp_str = now.strftime("%Y%m%d_%H%M%S")
             vehicle_img_path = None
             plate_img_path = None
-            
-            # Lưu ảnh xe (toàn cảnh) - BẮT BUỘC
+
             if vehicle_crop.size > 0:
                 vehicle_img_name = f"vehicle_{timestamp_str}_{track_id}.jpg"
-                vehicle_img_path = os.path.join("static/uploads", vehicle_img_name)
+                vehicle_img_path = os.path.join(images_folder, vehicle_img_name)
                 cv2.imwrite(vehicle_img_path, vehicle_crop)
-                print(f"[VIOLATION THREAD] ✅ Đã lưu ảnh xe (toàn cảnh): {vehicle_img_name}")
+                print(f"[VIOLATION THREAD] ✅ Đã lưu ảnh xe: {images_folder}/{vehicle_img_name}")
             else:
                 print(f"[VIOLATION THREAD] ⚠️ Không thể crop ảnh xe, bỏ qua vi phạm")
                 continue
-            
-            # Lưu ảnh biển số (crop) - CHỈ KHI CÓ plate_crop
+
             if plate_crop is not None and plate_crop.size > 0:
                 plate_img_name = f"plate_{timestamp_str}_{track_id}.jpg"
-                plate_img_path = os.path.join("static/plate_images", plate_img_name)
+                plate_img_path = os.path.join(images_folder, plate_img_name)
                 cv2.imwrite(plate_img_path, plate_crop)
-                print(f"[VIOLATION THREAD] ✅ Đã lưu ảnh biển số (crop): {plate_img_name}")
+                print(f"[VIOLATION THREAD] ✅ Đã lưu ảnh biển số: {images_folder}/{plate_img_name}")
             else:
                 print(f"[VIOLATION THREAD] ⚠️ Không có ảnh biển số crop, chỉ gửi ảnh xe")
-            
-            # Viết bản ghi MySQL
+
             violation_id = None
             try:
                 with app.app_context():
                     conn = mysql.connection
                     if conn:
                         cursor = conn.cursor()
-                        
-                        # Normalize biển số
+
                         normalized_plate = normalize_plate(plate) if plate else None
-                        
-                        # Tính exceeded
                         exceeded = speed - speed_limit if speed > speed_limit else 0
-                        
-                        # Lấy thông tin chủ xe từ database (nếu có)
+
                         owner_name = None
                         address = None
                         phone = None
-                        
+
                         if normalized_plate:
                             try:
                                 cursor.execute("""
-                                    SELECT owner_name, address, phone 
-                                    FROM vehicle_registry 
+                                    SELECT owner_name, address, phone
+                                    FROM vehicle_registry
                                     WHERE plate_number = %s
                                 """, (normalized_plate,))
                                 result = cursor.fetchone()
@@ -2373,39 +2413,49 @@ def violation_worker():
                                     address = result.get('address')
                                     phone = result.get('phone')
                             except Exception as e:
-                                # Bảng vehicle_registry không tồn tại hoặc có lỗi - bỏ qua, tiếp tục với None
                                 print(f"[VIOLATION THREAD] ⚠️ Không thể lấy thông tin chủ xe từ vehicle_registry: {e}")
-                                print(f"[VIOLATION THREAD]    → Tiếp tục lưu vi phạm mà không có thông tin chủ xe")
                                 owner_name = None
                                 address = None
                                 phone = None
+
+                        # Save relative paths from static/ folder for database
+                        # Format: violation_videos/YYYY/MM/DD/plate/filename.ext
+                        # IMPORTANT: Convert backslashes to forward slashes for web compatibility
+                        if vehicle_img_path:
+                            vehicle_img_name = vehicle_img_path.replace('static/', '').replace('static\\', '').replace('\\', '/')
+                        else:
+                            vehicle_img_name = None
+
+                        if plate_img_path:
+                            plate_img_name = plate_img_path.replace('static/', '').replace('static\\', '').replace('\\', '/')
+                        else:
+                            plate_img_name = None
+
+                        if video_clean_path:
+                            video_name = video_clean_path.replace('static/', '').replace('static\\', '').replace('\\', '/')
+                        else:
+                            video_name = None
+
+                        print(f"[DATABASE] 💾 Paths to save:")
+                        print(f"   - Vehicle: {vehicle_img_name}")
+                        print(f"   - Plate: {plate_img_name}")
+                        print(f"   - Video: {video_name}")
                         
-                        # Insert vào database - Dùng đúng tên cột trong bảng violations
-                        # Bảng violations KHÔNG có owner_name, address, phone - phải lưu vào vehicle_owner
-                        # Lấy tên file từ đường dẫn đầy đủ
-                        vehicle_img_name = os.path.basename(vehicle_img_path) if vehicle_img_path else None
-                        plate_img_name = os.path.basename(plate_img_path) if plate_img_path else None
-                        video_name = os.path.basename(video_clean_path) if video_clean_path else None
-                        
-                        # 1. Lưu hoặc cập nhật thông tin chủ xe vào bảng vehicle_owner
                         if normalized_plate:
                             try:
-                                # Kiểm tra xem đã có trong vehicle_owner chưa
                                 cursor.execute("SELECT plate FROM vehicle_owner WHERE plate = %s", (normalized_plate,))
                                 existing_owner = cursor.fetchone()
-                                
+
                                 if existing_owner:
-                                    # Cập nhật nếu có thông tin mới
                                     if owner_name or address or phone:
                                         cursor.execute("""
-                                            UPDATE vehicle_owner 
+                                            UPDATE vehicle_owner
                                             SET owner_name = COALESCE(%s, owner_name),
                                                 address = COALESCE(%s, address),
                                                 phone = COALESCE(%s, phone)
                                             WHERE plate = %s
                                         """, (owner_name, address, phone, normalized_plate))
                                 else:
-                                    # Tạo mới nếu chưa có
                                     cursor.execute("""
                                         INSERT INTO vehicle_owner (plate, owner_name, address, phone)
                                         VALUES (%s, %s, %s, %s)
@@ -2415,19 +2465,20 @@ def violation_worker():
                             except Exception as e:
                                 print(f"[VIOLATION THREAD] ⚠️ Lỗi khi lưu thông tin chủ xe: {e}")
                                 conn.rollback()
-                        
-                        # 2. Lưu violation vào bảng violations (KHÔNG có owner_name, address, phone)
+
+                        # FIX: Cho phép lưu vi phạm ngay cả khi không có plate (dùng NULL hoặc track_id)
+                        db_plate = normalized_plate if normalized_plate else f"UNKNOWN_{track_id}"
                         cursor.execute("""
-                            INSERT INTO violations 
+                            INSERT INTO violations
                             (plate, vehicle_class, speed, speed_limit, image, plate_image, video, status, time)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s)
                         """, (
-                            normalized_plate, vehicle_class,
+                            db_plate, vehicle_class,
                             round(speed, 2), speed_limit,
                             vehicle_img_name, plate_img_name, video_name,
                             get_vietnam_time().strftime('%Y-%m-%d %H:%M:%S')
                         ))
-                        
+
                         conn.commit()
                         violation_id = cursor.lastrowid
                         cursor.close()
@@ -2436,46 +2487,41 @@ def violation_worker():
                 print(f"[VIOLATION THREAD] Lỗi lưu database: {e}")
                 import traceback
                 traceback.print_exc()
-            
-            # KIỂM TRA THÔNG TIN BẮT BUỘC TRƯỚC KHI GỬI TELEGRAM
-            # BẮT BUỘC: plate (biển số đã drop), vehicle_image_path (ảnh vi phạm xe)
+
             final_plate = normalized_plate if normalized_plate else plate
-            
+
+            # FIX: Cho phép gửi Telegram ngay cả khi không có plate (dùng track_id)
             if not final_plate:
-                print(f"[VIOLATION THREAD] ❌ Bỏ qua vi phạm: Không có biển số (track_id={track_id})")
-                continue
-            
+                final_plate = f"UNKNOWN_{track_id}"
+                print(f"[VIOLATION THREAD] ⚠️ Không có biển số, dùng track_id: {final_plate}")
+
             if not vehicle_img_path or not os.path.exists(vehicle_img_path):
                 print(f"[VIOLATION THREAD] ❌ Bỏ qua vi phạm: Không có ảnh vi phạm xe (track_id={track_id}, path={vehicle_img_path})")
                 continue
-            
-            # Đẩy message vào telegram_queue với đầy đủ thông tin BẮT BUỘC
-            # BẮT BUỘC: plate (biển số đã drop), vehicle_image_path (ảnh vi phạm xe)
-            # owner_name, address, phone có thể None (sẽ hiển thị "Chưa có thông tin")
+
             telegram_data = {
                 'violation_id': violation_id,
-                'plate': final_plate,  # BẮT BUỘC: Biển số đã drop (nhận diện)
+                'plate': final_plate,
                 'speed': speed,
                 'limit': speed_limit,
                 'vehicle_type': vehicle_class,
                 'exceeded': exceeded,
-                'vehicle_image_path': vehicle_img_path,  # BẮT BUỘC: Ảnh vi phạm xe
-                'plate_image_path': plate_img_path,  # Ảnh biển số (có thể None)
-                'video_path': video_clean_path,  # Video clean, không có bbox (có thể None)
-                'owner_name': owner_name,  # Thông tin chủ xe (có thể None)
-                'address': address,  # Thông tin chủ xe (có thể None)
-                'phone': phone,  # Thông tin chủ xe (có thể None)
+                'vehicle_image_path': vehicle_img_path,
+                'plate_image_path': plate_img_path,
+                'video_path': video_clean_path,
+                'owner_name': owner_name,
+                'address': address,
+                'phone': phone,
                 'timestamp': timestamp
             }
-            
+
             try:
                 telegram_queue.put(telegram_data, block=False)
                 print(f"[VIOLATION THREAD] ✅ Đã đẩy vào telegram_queue: plate={final_plate}, owner={owner_name}, ảnh={vehicle_img_path}")
             except queue.Full:
                 print(f"[VIOLATION THREAD] ⚠️ Telegram queue đầy, bỏ qua")
-            
+
         except queue.Empty:
-            # Queue rỗng, tiếp tục chờ
             continue
         except Exception as e:
             print(f"[VIOLATION THREAD] Lỗi: {e}")
@@ -2488,106 +2534,90 @@ def violation_worker():
 # ======================
 def video_thread():
     """
-    THREAD 1: VideoThread (video_reader)
-    - Đọc video đúng FPS gốc
-    - KHÔNG chạy AI trong thread này
+    THREAD 1: VideoThread (video_reader) - OPTIMIZED FOR OFFLINE VIDEO
+    - Đọc video NHANH NHẤT có thể (KHÔNG delay theo FPS)
     - Push frame vào detection_queue mỗi N frame (DETECTION_FREQUENCY)
-    - Lưu frame gốc vào original_frame_buffer để dùng cho:
-        + crop xe và biển số
-        + tạo video sạch (clean)
-        + lưu database/telegram
-    - KHÔNG vẽ bounding box ở thread này
+    - Lưu frame gốc vào original_frame_buffer
+    - Timestamp CHÍNH XÁC từ frame_number / fps
+
+    🎯 TỐI ƯU CHO OFFLINE VIDEO:
+    ✅ Đọc >1000 FPS nếu có thể
+    ✅ Timestamp = frame_number / fps
+    ✅ KHÔNG time.sleep() delay
+    ✅ Video mượt, không giật
     """
-    global cap, camera_running, original_frame_buffer, detection_queue, video_fps, cap_lock, DETECTION_FREQUENCY, DETECTION_SCALE
-    
-    frame_count = 0
+    global cap, camera_running, original_frame_buffer, detection_queue, video_fps, cap_lock, DETECTION_FREQUENCY, DETECTION_SCALE, current_video_path, stream_queue_clean, alpr_proactive_queue, active_tracks, active_tracks_lock
 
-    # TỐI ƯU: Tính delay chính xác dựa trên FPS để video mượt
-    target_fps = video_fps if video_fps > 0 else 30
-    frame_delay = 1.0 / target_fps
+    # Kiểm tra có video path không
+    if current_video_path is None:
+        print("[VIDEO THREAD] ⚠️  current_video_path is None, waiting for video upload...")
+        # Chờ tối đa 10 giây cho video upload
+        wait_time = 0
+        max_wait = 10.0
+        while camera_running and current_video_path is None and wait_time < max_wait:
+            time.sleep(0.5)
+            wait_time += 0.5
 
-    print(f"[VIDEO THREAD] ✅ Đã khởi động - Đọc video với tốc độ gốc ({target_fps:.2f} FPS)")
-    print(f"[VIDEO THREAD] Detection frequency: {DETECTION_FREQUENCY} (push mỗi {DETECTION_FREQUENCY} frame vào detection_queue)")
+        if current_video_path is None:
+            print("[VIDEO THREAD] ❌ No video path available after waiting, stopping...")
+            return
 
-    while camera_running:
-        if cap is None:
+    print(f"[VIDEO THREAD] 🎬 Starting OfflineVideoReader for: {current_video_path}")
+    print(f"[VIDEO THREAD] Detection frequency: {DETECTION_FREQUENCY} (every {DETECTION_FREQUENCY} frame(s))")
+    print(f"[VIDEO THREAD] Detection scale: {DETECTION_SCALE * 100}%")
+
+    # Tạo OfflineVideoReader instance
+    try:
+        reader = OfflineVideoReader(
+            video_path=current_video_path,
+            detection_queue=detection_queue,
+            original_frame_buffer=original_frame_buffer,
+            detection_frequency=DETECTION_FREQUENCY,
+            detection_scale=DETECTION_SCALE,
+            cap_lock=cap_lock
+        )
+
+        reader.start(
+            stream_queue_clean=stream_queue_clean,
+            alpr_proactive_queue=alpr_proactive_queue,
+            alpr_frequency=3,
+            active_tracks=active_tracks,
+            active_tracks_lock=active_tracks_lock
+        )
+        
+        time.sleep(0.5)
+
+        if reader.cap and reader.cap.isOpened():
+            info = reader.get_info()
+            print(f"[VIDEO THREAD] 📹 Video: {info['width']}x{info['height']} @ {info['fps']:.2f} FPS")
+            print(f"[VIDEO THREAD] 📹 Duration: {info['duration']:.2f}s ({info['total_frames']} frames)")
+            print(f"[VIDEO THREAD] ⚡ Reading at MAXIMUM speed (NO FPS delay)")
+        else:
+            print(f"[VIDEO THREAD] ⚠️ Reader started but video not opened")
+
+        print(f"[VIDEO THREAD] ⏳ Waiting for video to finish (camera_running={camera_running}, reader.running={reader.running})")
+        while camera_running and reader.running:
+            if not reader.running:
+                print("[VIDEO THREAD] ⚠️ Reader stopped unexpectedly")
+                break
+            if reader.thread and not reader.thread.is_alive():
+                print("[VIDEO THREAD] ⚠️ Reader thread stopped")
+                break
             time.sleep(0.1)
-            continue
 
-        # TỐI ƯU: Đọc frame ngay, không đợi delay trước
-        # Delay sẽ được thực hiện SAU KHI xử lý frame
-        loop_start = time.time()
+        print("[VIDEO THREAD] 🛑 Stopping video reader...")
+        reader.stop()
 
-        # Đọc frame từ video (thread-safe)
-        frame = None
-        ret = False
-        with cap_lock:
-            if cap is None or not cap.isOpened():
-                time.sleep(0.1)
-                continue
-            ret, frame = cap.read()
+        # FIX: Khi video hết, tự động dừng detection và tất cả worker threads
+        print("[VIDEO THREAD] 🛑 Video finished, stopping all detection workers...")
+        camera_running = False
+        print("[VIDEO THREAD] ✅ Video thread stopped, camera_running = False")
 
-        if not ret or frame is None:
-            # Video kết thúc - loop lại từ đầu
-            with cap_lock:
-                if cap and cap.isOpened():
-                    try:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        print("[VIDEO THREAD] Video kết thúc, loop lại từ đầu...")
-                        time.sleep(0.1)
-                        continue
-                    except Exception as e:
-                        print(f"[VIDEO THREAD] Lỗi khi loop video: {e}")
-                        break
-                else:
-                    print("[VIDEO THREAD] Video capture không mở được, dừng xử lý...")
-                    break
+    except Exception as e:
+        print(f"[VIDEO THREAD] ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
-        frame_count += 1
-
-        # Lưu frame gốc vào buffer (KHÔNG CÓ BOUNDING BOX)
-        # Lưu vào buffer chung trước, sau đó DetectThread sẽ phân loại theo track_id
-        original_frame = frame.copy()
-
-        # Lưu frame gốc vào buffer chung (sẽ được phân loại theo track_id bởi DetectThread)
-        if 'global' not in original_frame_buffer:
-            original_frame_buffer['global'] = deque(maxlen=90)
-
-        original_frame_buffer['global'].append({
-            'frame': original_frame,
-            'frame_id': frame_count,
-            'timestamp': time.time()
-        })
-
-        # Push frame vào detection_queue mỗi N frame (DETECTION_FREQUENCY)
-        # Điều này giúp giảm tải cho Detection Thread
-        if frame_count % DETECTION_FREQUENCY == 0:
-            try:
-                if len(detection_queue) < detection_queue.maxlen:
-                    # Chuẩn bị detect_frame (resize nếu cần)
-                    if DETECTION_SCALE < 1.0:
-                        original_h, original_w = frame.shape[:2]
-                        detect_w = int(original_w * DETECTION_SCALE)
-                        detect_h = int(original_h * DETECTION_SCALE)
-                        detect_frame = cv2.resize(frame, (detect_w, detect_h), interpolation=cv2.INTER_LINEAR)
-                    else:
-                        detect_frame = frame
-
-                    detection_queue.append({
-                        'frame': detect_frame,
-                        'original': original_frame,
-                        'frame_id': frame_count,
-                        'timestamp': time.time()
-                    })
-            except Exception as e:
-                print(f"[VIDEO THREAD] Detection queue error: {e}")
-
-        # TỐI ƯU: Delay chính xác để video chạy đúng FPS
-        # Tính thời gian đã xử lý, delay phần còn lại
-        loop_elapsed = time.time() - loop_start
-        sleep_time = frame_delay - loop_elapsed
-        if sleep_time > 0:
-            time.sleep(sleep_time)
 
 # ======================
 # THREAD 2: FRAME CAPTURE THREAD - REMOVED (DUPLICATE)
@@ -2608,18 +2638,18 @@ def alpr_worker_thread():
     - Không ảnh hưởng đến FPS của video
     """
     global alpr_worker_running, plate_detector_post
-    
+
     alpr_worker_running = True
     print("[ALPR WORKER THREAD] ✅ Đã khởi động - Xử lý ALPR async, không block video")
-    
+
     while alpr_worker_running:
         try:
             # Lấy ảnh vi phạm từ queue (blocking, đợi đến khi có)
             violation_data = alpr_queue.get(timeout=1)
-            
+
             if violation_data is None:  # Signal để dừng
                 break
-            
+
             violation_id = violation_data.get('violation_id')
             violation_img_path = violation_data.get('violation_img_path')
             vehicle_img_path = violation_data.get('vehicle_img_path')
@@ -2628,23 +2658,23 @@ def alpr_worker_thread():
             speed_limit = violation_data.get('speed_limit')
             vehicle_class = violation_data.get('vehicle_class')
             track_id = violation_data.get('track_id')
-            
+
             print(f"[ALPR WORKER] 🔍 Đang xử lý vi phạm ID {violation_id} (Còn {alpr_queue.qsize()} trong hàng đợi)")
-            
+
             # Gọi hàm xử lý ALPR (đã có sẵn)
             process_plate_from_saved_image(
                 violation_id, violation_img_path, vehicle_img_path, video_path,
                 speed, speed_limit, vehicle_class, track_id
             )
-            
+
             print(f"[ALPR WORKER] ✅ Đã xử lý xong vi phạm ID {violation_id}")
-            
+
             # Đánh dấu task đã hoàn thành
             alpr_queue.task_done()
-            
+
             # Delay nhỏ giữa các lần xử lý để tránh quá tải
             time.sleep(0.1)
-            
+
         except queue.Empty:
             # Timeout - tiếp tục vòng lặp
             continue
@@ -2657,14 +2687,14 @@ def alpr_worker_thread():
                 alpr_queue.task_done()
             except:
                 pass
-    
+
     print("[ALPR WORKER THREAD] ⏹️ Đã dừng")
 
 def start_alpr_worker():
     """Khởi động ALPR worker thread"""
     global alpr_worker_thread_obj, alpr_worker_running
-    
-    if not alpr_worker_running:
+
+    if alpr_worker_thread_obj is None or not alpr_worker_thread_obj.is_alive():
         alpr_worker_thread_obj = threading.Thread(target=alpr_worker_thread, daemon=True)
         alpr_worker_thread_obj.start()
         print("[ALPR WORKER] 🚀 Đã khởi động ALPR worker thread")
@@ -2691,18 +2721,22 @@ def start_video_thread():
     Thread 6: TELEGRAM WORKER (Gửi thông báo)
     """
     global camera_running
-
+    
     print("=" * 60)
-    print("[THREAD MANAGER] 🚀 KHỞI ĐỘNG 6-THREAD ARCHITECTURE")
+    print("[THREAD MANAGER] 🚀 KHỞI ĐỘNG DUAL-STREAM ARCHITECTURE")
     print("=" * 60)
 
-    # THREAD 1: Video Thread (đọc video với tốc độ gốc)
     try:
-        video_stream = threading.Thread(target=video_thread, daemon=True)
-        video_stream.start()
-        print("[THREAD 1] ✅ Video Thread → detection_queue")
+        if 'video_stream_thread' in globals() and video_stream_thread.is_alive():
+            print("[THREAD 1] ⚠️ Video thread đang chạy, không tạo mới")
+        else:
+            video_stream_thread = threading.Thread(target=video_thread, daemon=True)
+            video_stream_thread.start()
+            print("[THREAD 1] ✅ Video Thread → detection_queue + stream_queue_clean + alpr_proactive_queue")
     except Exception as e:
         print(f"[THREAD 1] ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
     # THREAD 2: Detection Worker Thread (YOLO + Tracking + Speed)
     try:
@@ -2712,50 +2746,86 @@ def start_video_thread():
     except Exception as e:
         print(f"[THREAD 2] ❌ Error: {e}")
 
-    # THREAD 3: ALPR Realtime Worker (FastALPR)
     try:
-        alpr_realtime_thread = threading.Thread(target=alpr_realtime_worker, daemon=True)
-        alpr_realtime_thread.start()
-        print("[THREAD 3] ✅ ALPR Worker → best_frame_queue")
+        alpr_proactive_thread = threading.Thread(target=alpr_proactive_worker, daemon=True)
+        alpr_proactive_thread.start()
+        print("[THREAD 3] ✅ ALPR Proactive Worker → alpr_proactive_cache")
     except Exception as e:
         print(f"[THREAD 3] ❌ Error: {e}")
 
-    # THREAD 4: Best Frame Selector
     try:
-        best_frame_thread = threading.Thread(target=best_frame_selector_worker, daemon=True)
-        best_frame_thread.start()
-        print("[THREAD 4] ✅ Best Frame Selector → violation_queue")
+        alpr_realtime_thread = threading.Thread(target=alpr_realtime_worker, daemon=True)
+        alpr_realtime_thread.start()
+        print("[THREAD 4] ✅ ALPR Realtime Worker → best_frame_queue")
     except Exception as e:
         print(f"[THREAD 4] ❌ Error: {e}")
 
-    # THREAD 5: Violation Worker Thread
     try:
-        violation_worker_thread = threading.Thread(target=violation_worker, daemon=True)
-        violation_worker_thread.start()
-        print("[THREAD 5] ✅ Violation Worker → telegram_queue")
+        best_frame_thread = threading.Thread(target=best_frame_selector_worker, daemon=True)
+        best_frame_thread.start()
+        print("[THREAD 5] ✅ Best Frame Selector → violation_queue")
     except Exception as e:
         print(f"[THREAD 5] ❌ Error: {e}")
 
-    # THREAD 6: Telegram Worker Thread
+    try:
+        violation_worker_thread = threading.Thread(target=violation_worker, daemon=True)
+        violation_worker_thread.start()
+        print("[THREAD 6] ✅ Violation Worker → telegram_queue")
+    except Exception as e:
+        print(f"[THREAD 6] ❌ Error: {e}")
+
     try:
         if not telegram_worker_running:
             telegram_worker_thread_obj = threading.Thread(target=telegram_worker, daemon=True)
             telegram_worker_thread_obj.start()
-            print("[THREAD 6] ✅ Telegram Worker → Gửi thông báo")
+            print("[THREAD 7] ✅ Telegram Worker → Gửi thông báo")
     except Exception as e:
-        print(f"[THREAD 6] ❌ Error: {e}")
+        print(f"[THREAD 7] ❌ Error: {e}")
 
     print("=" * 60)
-    print("[THREAD MANAGER] ✅ TẤT CẢ 6 THREAD ĐÃ KHỞI ĐỘNG!")
+    print("[THREAD MANAGER] ✅ TẤT CẢ 7 THREAD ĐÃ KHỞI ĐỘNG!")
     print("=" * 60)
 
 # ======================
 # VIDEO GENERATOR (STREAM TO WEB)
 # ======================
 # Tối ưu streaming: resize frame và giảm JPEG quality để stream mượt hơn
-STREAM_WIDTH = 1280  # Width cho video stream (giảm để stream nhanh hơn)
-STREAM_JPEG_QUALITY = 80  # JPEG quality (80 = tốc độ tốt, chất lượng đủ dùng)
-STREAM_FPS = 30  # FPS mặc định cho stream (sẽ được điều chỉnh theo video)
+STREAM_WIDTH = 1280
+STREAM_JPEG_QUALITY = 80
+STREAM_FPS = 30
+
+def video_generator_smooth():
+    """Stream mượt (clean) - KHÔNG có bbox, độ trễ thấp, 30-60 FPS"""
+    global stream_queue_clean, camera_running
+
+    print("[VIDEO STREAM SMOOTH] 🎬 Starting smooth stream...")
+
+    while True:
+        try:
+            if not stream_queue_clean.empty():
+                frame = stream_queue_clean.get(timeout=0.1)
+                encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                _, buffer = cv2.imencode('.jpg', frame, encode_params)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n'
+                       b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n'
+                       + buffer.tobytes() + b'\r\n')
+            else:
+                black_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+                text = "Loading smooth stream..."
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(black_frame, text, (400, 360), font, 1.2, (0, 255, 255), 2)
+                encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                _, buffer = cv2.imencode('.jpg', black_frame, encode_params)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n'
+                       b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n'
+                       + buffer.tobytes() + b'\r\n')
+                time.sleep(0.03)
+
+        except Exception as e:
+            print(f"[VIDEO STREAM SMOOTH] ❌ Error: {e}")
+            time.sleep(0.1)
 
 def video_generator():
     """
@@ -2864,13 +2934,13 @@ def video_generator_clean():
     Dùng để test/debug (video clean thực tế được gửi qua Telegram từ violation_frame_buffer)
     """
     global cap, camera_running, original_frame_buffer, video_fps
-    
+
     # Tính delay dựa trên FPS để video chạy đúng tốc độ
     target_fps = video_fps if video_fps > 0 else STREAM_FPS
     frame_delay = 1.0 / target_fps  # Thời gian delay giữa các frame
-    
+
     last_frame_time = time.time()
-    
+
     while camera_running:
         if cap is None:
             time.sleep(0.1)
@@ -2878,23 +2948,23 @@ def video_generator_clean():
         if 'global' not in original_frame_buffer or len(original_frame_buffer['global']) == 0:
             # Nếu không có frame, tạo frame đen để stream không bị lỗi
             black_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(black_frame, "Waiting for video...", (50, 240), 
+            cv2.putText(black_frame, "Waiting for video...", (50, 240),
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), STREAM_JPEG_QUALITY]
             _, jpeg = cv2.imencode(".jpg", black_frame, encode_params)
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
             time.sleep(0.1)
             continue
-        
+
         # Điều chỉnh tốc độ stream theo FPS của video
         current_time = time.time()
         elapsed = current_time - last_frame_time
-        
+
         if elapsed < frame_delay:
             time.sleep(frame_delay - elapsed)
-        
+
         last_frame_time = time.time()
-        
+
         # Lấy frame từ buffer - an toàn với try-except
         try:
             if 'global' in original_frame_buffer and len(original_frame_buffer['global']) > 0:
@@ -2905,14 +2975,14 @@ def video_generator_clean():
         except (IndexError, TypeError, KeyError):
             # Nếu buffer rỗng hoặc lỗi, tạo frame đen
             black_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(black_frame, "No frame available", (50, 240), 
+            cv2.putText(black_frame, "No frame available", (50, 240),
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), STREAM_JPEG_QUALITY]
             _, jpeg = cv2.imencode(".jpg", black_frame, encode_params)
             yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
             time.sleep(0.1)
             continue
-        
+
         # TỐI ƯU: Resize frame trước khi encode để stream nhanh hơn
         original_h, original_w = frame.shape[:2]
         if original_w > STREAM_WIDTH:
@@ -2920,13 +2990,13 @@ def video_generator_clean():
             new_w = STREAM_WIDTH
             new_h = int(original_h * scale)
             frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        
+
         # TỐI ƯU: Encode JPEG với quality thấp hơn để nhanh hơn
         encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), STREAM_JPEG_QUALITY]
         _, jpeg = cv2.imencode(".jpg", frame, encode_params)
-        
+
         yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
-    
+
     if cap:
         try: cap.release()
         except: pass
@@ -2951,26 +3021,26 @@ def index():
         if not conn:
             print("[ERROR] Database connection is None")
             return render_template("index.html", total=0, vehicles=0, avg_speed=0)
-        
+
         cursor = conn.cursor()
         # TỐI ƯU: Gộp 3 queries thành 1 query duy nhất để tăng tốc
         cursor.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) AS total,
                 COUNT(DISTINCT plate) AS vehicles,
                 COALESCE(AVG(speed), 0) AS avg_speed
-            FROM violations 
-            WHERE plate IS NOT NULL 
-            AND plate_image IS NOT NULL 
+            FROM violations
+            WHERE plate IS NOT NULL
+            AND plate_image IS NOT NULL
             AND DATE(time) = CURDATE()
         """)
         result = cursor.fetchone()
         cursor.close()
-        
+
         total = result["total"] if result else 0
         vehicles = result["vehicles"] if result else 0
         avg_speed = round(result["avg_speed"] or 0, 2)
-        
+
         return render_template("index.html", total=total, vehicles=vehicles, avg_speed=avg_speed)
     except Exception as e:
         print(f"[ERROR] index route: {e}")
@@ -2979,49 +3049,140 @@ def index():
         # Fallback values nếu có lỗi
         return render_template("index.html", total=0, vehicles=0, avg_speed=0)
 
+@app.route("/video_feed_smooth")
+def video_feed_smooth():
+    """Stream mượt (clean) - KHÔNG có bbox, độ trễ thấp, 30-60 FPS"""
+    return Response(video_generator_smooth(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
 @app.route("/video_feed")
 def video_feed():
-    """Stream 2 - Detection stream: Có bounding box, text overlay (cho web/admin)"""
+    """Stream Admin - Detection stream: Có bounding box, text overlay"""
     return Response(video_generator(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 @app.route("/video_feed_clean")
 def video_feed_clean():
-    """Stream 1 - Clean stream: Không có bounding box (cho người vi phạm)"""
+    """Stream Clean - Frame gốc không có bounding box"""
     return Response(video_generator_clean(), mimetype="multipart/x-mixed-replace; boundary=frame")
+
+@app.route("/detection_stream")
+def detection_stream():
+    """
+    SSE Stream: Detection data (bbox, speed, plate) cho Canvas Overlay
+    
+    Format:
+    {
+        "detections": [
+            {
+                "track_id": 15,
+                "bbox": [120, 300, 450, 680],
+                "speed": 85.3,
+                "class": "car",
+                "plate": "30A12345",
+                "violation": true
+            }
+        ],
+        "video_resolution": [1920, 1080],
+        "speed_limit": 40,
+        "timestamp": 1234567890.123
+    }
+    """
+    def generate():
+        global current_detections, speed_limit, current_video_path
+        
+        # Lấy video resolution từ video reader
+        video_resolution = [1920, 1080]  # Default
+        if current_video_path and os.path.exists(current_video_path):
+            try:
+                cap = cv2.VideoCapture(current_video_path)
+                if cap.isOpened():
+                    video_resolution = [
+                        int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                        int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    ]
+                    cap.release()
+            except:
+                pass
+        
+        while True:
+            try:
+                # Format detections từ current_detections dict
+                detections_list = []
+                for track_id, det in current_detections.items():
+                    vehicle_bbox = det.get('vehicle_bbox', [])
+                    if len(vehicle_bbox) == 4:
+                        x1, y1, x2, y2 = vehicle_bbox
+                        speed = det.get('speed')
+                        vehicle_class = det.get('vehicle_class', 'vehicle')
+                        plate = det.get('plate', '')
+                        
+                        det_data = {
+                            'track_id': track_id,
+                            'bbox': [int(x1), int(y1), int(x2), int(y2)],
+                            'speed': float(speed) if speed is not None else None,
+                            'class': vehicle_class,
+                            'plate': plate if plate else '',
+                            'violation': speed is not None and speed > speed_limit
+                        }
+                        detections_list.append(det_data)
+                
+                # Gửi data qua SSE
+                data = {
+                    'detections': detections_list,
+                    'video_resolution': video_resolution,
+                    'speed_limit': speed_limit,
+                    'timestamp': time.time()
+                }
+                
+                yield f"data: {json.dumps(data)}\n\n"
+                
+                # Update 20 FPS (50ms interval)
+                time.sleep(0.05)
+                
+            except Exception as e:
+                print(f"[DETECTION STREAM] Error: {e}")
+                time.sleep(0.1)
+    
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive'
+        }
+    )
 
 @app.route("/upload_video", methods=["POST"])
 @login_required
 def upload_video():
     """Tối ưu: Upload video nhanh, async processing, immediate response"""
-    global cap, tracker, camera_running, video_fps
-    
+    global cap, tracker, camera_running, video_fps, current_video_path
+
     print("[VIDEO UPLOAD] 📥 Received upload request")
     print(f"[VIDEO UPLOAD] Content-Type: {request.content_type}")
     print(f"[VIDEO UPLOAD] Content-Length: {request.content_length}")
-    
+
     try:
         # Kiểm tra file có tồn tại không
         if "video" not in request.files:
             print("[VIDEO UPLOAD] ❌ No file in request.files")
             print(f"[VIDEO UPLOAD] Available keys: {list(request.files.keys())}")
             return jsonify({"status": "error", "msg": "Không có file được upload. Vui lòng chọn file video."})
-        
+
         file = request.files["video"]
-        
-        # Kiểm tra file có tên không (người dùng đã chọn file)
+
         if file.filename == '':
             print("[VIDEO UPLOAD] ❌ Empty filename")
             return jsonify({"status": "error", "msg": "Chưa chọn file. Vui lòng chọn file video để upload."})
-        
-        # Kiểm tra định dạng file
+
         allowed_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv')
         if not file.filename.lower().endswith(allowed_extensions):
             print(f"[VIDEO UPLOAD] ❌ Invalid file format: {file.filename}")
             return jsonify({
-                "status": "error", 
+                "status": "error",
                 "msg": f"Định dạng file không hợp lệ. Chỉ chấp nhận: {', '.join(allowed_extensions)}"
             })
-        
+
         # Kiểm tra kích thước file (nếu có thể)
         file_size = 0
         try:
@@ -3039,12 +3200,12 @@ def upload_video():
         except (ValueError, TypeError):
             # Nếu không đọc được size từ header, bỏ qua (sẽ kiểm tra khi lưu file)
             pass
-        
+
         if file_size > 0:
             print(f"[VIDEO UPLOAD] 📤 Starting upload: {file.filename} ({file_size / 1024 / 1024:.2f} MB)")
         else:
             print(f"[VIDEO UPLOAD] 📤 Starting upload: {file.filename}")
-        
+
         # TỐI ƯU: Dừng video/camera hiện tại nếu đang chạy (async, không block)
         def stop_current_video():
             global cap, camera_running, cap_lock
@@ -3061,11 +3222,11 @@ def upload_video():
                         print(f"[VIDEO UPLOAD] ⚠️ Error releasing old capture: {e}")
                     cap = None
             time.sleep(0.5)  # Đợi thêm để đảm bảo thread cũ đã dừng hoàn toàn
-        
+
         # Chạy async để không block upload
         stop_thread = threading.Thread(target=stop_current_video, daemon=True)
         stop_thread.start()
-        
+
         # Lưu file video (chunked write để nhanh hơn với file lớn)
         save_path = os.path.join(UPLOAD_FOLDER, "uploaded.mp4")
         try:
@@ -3073,14 +3234,14 @@ def upload_video():
             chunk_size = 8192  # 8KB chunks
             total_written = 0
             max_size = 500 * 1024 * 1024  # 500MB
-            
+
             with open(save_path, 'wb') as f:
                 while True:
                     chunk = file.stream.read(chunk_size)
                     if not chunk:
                         break
                     total_written += len(chunk)
-                    
+
                     # Kiểm tra kích thước trong khi upload
                     if total_written > max_size:
                         f.close()
@@ -3091,9 +3252,9 @@ def upload_video():
                             "status": "error",
                             "msg": f"File quá lớn ({total_written / 1024 / 1024:.2f} MB). Giới hạn tối đa là 500MB."
                         })
-                    
+
                     f.write(chunk)
-            
+
             saved_size = os.path.getsize(save_path)
             print(f"[VIDEO UPLOAD] ✅ File saved to: {save_path} ({saved_size / 1024 / 1024:.2f} MB)")
         except Exception as e:
@@ -3107,23 +3268,23 @@ def upload_video():
                 except:
                     pass
             return jsonify({"status": "error", "msg": f"Lỗi khi lưu file: {str(e)}"})
-        
+
         # Kiểm tra file có tồn tại không
         if not os.path.exists(save_path):
             return jsonify({"status": "error", "msg": "File was not saved successfully"})
-        
+
         # TỐI ƯU: Xử lý video trong thread riêng để không block response
         def process_video_async():
-            global cap, tracker, camera_running, video_fps, admin_frame_buffer, original_frame_buffer, cap_lock, is_video_upload_mode, detection_queue
-            
+            global cap, tracker, camera_running, video_fps, admin_frame_buffer, original_frame_buffer, cap_lock, is_video_upload_mode, detection_queue, current_video_path
+
             try:
                 # Đợi thread dừng hoàn tất (tối đa 3 giây)
                 stop_thread.join(timeout=3.0)
-                
+
                 # TỐI ƯU: Bật video upload mode để tối ưu tốc độ
                 is_video_upload_mode = True
                 print("[VIDEO UPLOAD] 🚀 Bật video upload mode - Tối ưu tốc độ xử lý")
-                
+
                 # TỐI ƯU: Tăng queue size khi upload video (tập trung tài nguyên)
                 new_queue_size = get_detection_queue_size()
                 if len(detection_queue) > 0:
@@ -3135,7 +3296,7 @@ def upload_video():
                 else:
                     detection_queue = deque(maxlen=new_queue_size)
                 print(f"[VIDEO UPLOAD] ✅ Detection queue size: {new_queue_size} (tối ưu cho video upload)")
-                
+
                 # TỐI ƯU: Clear buffers để tránh frame cũ
                 admin_frame_buffer.clear()  # Clear dict
                 original_frame_buffer.clear()  # Clear dict
@@ -3150,72 +3311,47 @@ def upload_video():
                         violation_queue.get_nowait()
                     except queue.Empty:
                         break
-                
-                # TỐI ƯU: Sử dụng lock để mở VideoCapture an toàn
-                with cap_lock:
-                    # Mở video
-                    new_cap = cv2.VideoCapture(save_path)
-                    
-                    # Kiểm tra video có mở được không
-                    if not new_cap.isOpened():
-                        print(f"[VIDEO UPLOAD] ❌ Error: Cannot open video file: {save_path}")
-                        return
-                    
-                    # TỐI ƯU: Đọc frame đầu tiên ngay để buffer có dữ liệu
-                    ret, first_frame = new_cap.read()
-                    if ret and first_frame is not None:
-                        # Reset video về đầu
-                        new_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        # Thêm frame vào buffer ngay (buffers là dict, cần khởi tạo 'global' key)
-                        if 'global' not in original_frame_buffer:
-                            original_frame_buffer['global'] = deque(maxlen=90)
-                        if 'global' not in admin_frame_buffer:
-                            admin_frame_buffer['global'] = deque(maxlen=90)
-                        
-                        original_frame_buffer['global'].append({
-                            'frame': first_frame.copy(),
-                            'frame_id': 0,
-                            'timestamp': time.time()
-                        })
-                        admin_frame_buffer['global'].append({
-                            'frame': first_frame.copy(),
-                            'frame_id': 0,
-                            'timestamp': time.time()
-                        })
-                        print(f"[VIDEO UPLOAD] ✅ First frame loaded into buffer")
-                    
-                    # Gán cap sau khi đã mở và đọc frame thành công
-                    cap = new_cap
-                    
-                    # Lấy FPS từ video gốc để chạy đúng tốc độ (vẫn trong lock để an toàn)
-                    video_fps = new_cap.get(cv2.CAP_PROP_FPS) or 30
+
+                # ========================================
+                # TỐI ƯU: Set current_video_path TRƯỚC khi start video thread
+                # OfflineVideoReader sẽ tự mở video, không cần mở ở đây
+                # ========================================
+                # Set current_video_path TRƯỚC để video_thread() có thể bắt đầu ngay
+                current_video_path = save_path
+
+                # Lấy thông tin video nhanh để log (không cần lock vì chỉ đọc)
+                temp_cap = cv2.VideoCapture(save_path)
+                if temp_cap.isOpened():
+                    video_fps = temp_cap.get(cv2.CAP_PROP_FPS) or 30
                     if video_fps <= 0:
                         video_fps = 30
+                    video_width = int(temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    video_height = int(temp_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    total_frames = int(temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    temp_cap.release()
                     
-                    # KHÔNG giới hạn FPS - để video chạy đúng tốc độ gốc
-                    # Nếu video có FPS cao (ví dụ 60 FPS), vẫn chạy đúng tốc độ đó
-                    print(f"[VIDEO] FPS gốc của video: {video_fps:.2f} (sẽ chạy đúng tốc độ này)")
-                    
-                    # Lấy thông tin video (vẫn trong lock)
-                    video_width = int(new_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    video_height = int(new_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    total_frames = int(new_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    
-                    # Đặt frame rate cho video capture
-                    new_cap.set(cv2.CAP_PROP_FPS, video_fps)
+                    print(f"[VIDEO UPLOAD] ✅ Video info: {video_width}x{video_height} @ {video_fps:.2f} FPS")
+                    print(f"[VIDEO UPLOAD] Total frames: {total_frames} ({total_frames / video_fps:.2f}s)")
+                else:
+                    print(f"[VIDEO UPLOAD] ⚠️ Cannot read video info, using defaults")
+                    video_fps = 30
+                    video_width = 0
+                    video_height = 0
+                    total_frames = 0
                 
-                # In thông tin video (sau khi ra khỏi lock)
-                print(f"[VIDEO UPLOAD] ✅ Video opened successfully. FPS: {video_fps}")
-                print(f"[VIDEO UPLOAD] Video size: {video_width}x{video_height}")
-                print(f"[VIDEO UPLOAD] Total frames: {total_frames}")
-                
+                # video_fps đã được set ở trên và đã khai báo global ở đầu function
+
                 # Khởi tạo tracker với pixel_to_meter phù hợp cho video upload
                 tracker = SpeedTracker(pixel_to_meter=0.2)
-                
-                # Reset camera_running và start thread
+
+                # QUAN TRỌNG: Set camera_running = True TRƯỚC khi start thread
+                # Đảm bảo video_thread() không bị block
                 camera_running = True
-                start_video_thread()
+                print(f"[VIDEO UPLOAD] ✅ Set camera_running = True, current_video_path = {current_video_path}")
                 
+                # Start video thread (sẽ dùng OfflineVideoReader)
+                start_video_thread()
+
                 print("[VIDEO UPLOAD] ✅ Video processing started successfully")
             except Exception as e:
                 print(f"[VIDEO UPLOAD] ❌ Error processing video: {e}")
@@ -3229,14 +3365,14 @@ def upload_video():
                         except:
                             pass
                         cap = None
-        
+
         # Chạy xử lý video trong thread riêng
         process_thread = threading.Thread(target=process_video_async, daemon=True)
         process_thread.start()
-        
+
         # Trả về ngay lập tức (không chờ xử lý xong)
         return jsonify({"status": "ok", "msg": "upload_success", "processing": "Video đang được xử lý..."})
-        
+
     except Exception as e:
         print(f"[VIDEO UPLOAD] ❌ Unexpected error: {e}")
         import traceback
@@ -3260,9 +3396,9 @@ def open_camera():
     time.sleep(0.5)  # Đợi thread cũ dừng
     with cap_lock:
         if cap:
-            try: 
+            try:
                 cap.release()
-            except: 
+            except:
                 pass
         cap = cv2.VideoCapture(0)
     # Camera thường chạy ở 30fps
@@ -3279,9 +3415,9 @@ def stop_camera():
     time.sleep(0.5)  # Đợi thread dừng
     with cap_lock:
         if cap:
-            try: 
+            try:
                 cap.release()
-            except: 
+            except:
                 pass
             cap = None
     return {"status": "ok"}
@@ -3312,7 +3448,7 @@ def history():
         if not conn:
             print("[ERROR] Database connection is None in history route")
             return render_template("view_violations.html", rows=[], violation_count=0)
-        
+
         cursor = conn.cursor()
         plate = request.args.get("plate", "").strip()
         from_date = request.args.get("from_date", "").strip()
@@ -3323,22 +3459,22 @@ def history():
         # CHỈ LẤY VI PHẠM CÓ BIỂN SỐ VIỆT NAM HỢP LỆ
         # Lấy dữ liệu từ bảng violations và JOIN với vehicle_owner để lấy thông tin chủ xe
         # Bảng violations KHÔNG có owner_name, address, phone - chỉ có trong vehicle_owner
-        query = """SELECT v.id, 
-                      v.plate, 
-                      v.speed, 
-                      v.speed_limit, 
-                      v.image, 
-                      v.plate_image, 
-                      v.video, 
-                      v.time, 
-                      v.status, 
+        query = """SELECT v.id,
+                      v.plate,
+                      v.speed,
+                      v.speed_limit,
+                      v.image,
+                      v.plate_image,
+                      v.video,
+                      v.time,
+                      v.status,
                       v.vehicle_class,
-                      o.owner_name, 
-                      o.address, 
+                      o.owner_name,
+                      o.address,
                       o.phone
                FROM violations v
                LEFT JOIN vehicle_owner o ON v.plate = o.plate
-               WHERE v.plate IS NOT NULL 
+               WHERE v.plate IS NOT NULL
                  AND v.plate_image IS NOT NULL
                  AND (
                    -- Xe cá nhân: 2 số + 1 chữ + 5 số
@@ -3366,7 +3502,7 @@ def history():
         if speed_over:
             params.append(float(speed_over))
             query += " AND v.speed > %s"
-        
+
         # TỐI ƯU: Thêm LIMIT để chỉ load 100 records đầu tiên (có thể pagination sau)
         query += " ORDER BY v.time DESC LIMIT 100"
         cursor.execute(query, params)
@@ -3377,7 +3513,7 @@ def history():
         if plate:
             cursor.execute("SELECT COUNT(*) AS cnt FROM violations v WHERE v.plate LIKE %s", (f"%{plate}%",))
             violation_count = cursor.fetchone()["cnt"]
-        
+
         cursor.close()
         return render_template("view_violations.html", rows=rows, violation_count=violation_count)
     except Exception as e:
@@ -3393,7 +3529,7 @@ def autocomplete():
         conn = mysql.connection
         if not conn:
             return jsonify([])
-        
+
         cursor = conn.cursor()
         cursor.execute("SELECT plate FROM vehicle_owner WHERE plate LIKE %s LIMIT 5", ("%" + term + "%",))
         rows = cursor.fetchall()
@@ -3411,28 +3547,28 @@ def get_violations():
         if not conn:
             print("[ERROR] Database connection is None in get_violations route")
             return jsonify([])
-        
+
         cursor = conn.cursor()
         # TỐI ƯU: Sử dụng index trên (plate, plate_image, time) để query nhanh hơn
         # QUAN TRỌNG: Phải SELECT v.plate_image để hiển thị ảnh biển số
         # CHỈ LẤY VI PHẠM CÓ BIỂN SỐ VIỆT NAM HỢP LỆ
         # Lấy dữ liệu từ bảng violations và JOIN với vehicle_owner để lấy thông tin chủ xe
         # Bảng violations KHÔNG có owner_name, address, phone - chỉ có trong vehicle_owner
-        cursor.execute("""SELECT v.id, 
-                          v.plate, 
-                          v.speed, 
-                          v.speed_limit, 
-                          v.image, 
-                          v.plate_image, 
-                          v.time, 
-                          v.status, 
+        cursor.execute("""SELECT v.id,
+                          v.plate,
+                          v.speed,
+                          v.speed_limit,
+                          v.image,
+                          v.plate_image,
+                          v.time,
+                          v.status,
                           v.vehicle_class,
-                          o.owner_name, 
-                          o.address, 
+                          o.owner_name,
+                          o.address,
                           o.phone
                           FROM violations v
                           LEFT JOIN vehicle_owner o ON v.plate = o.plate
-                          WHERE v.plate IS NOT NULL 
+                          WHERE v.plate IS NOT NULL
                             AND v.plate_image IS NOT NULL
                             AND (
                               -- Xe cá nhân: 2 số + 1 chữ + 5 số
@@ -3469,30 +3605,30 @@ def get_stats():
         if not conn:
             print("[ERROR] Database connection is None in get_stats route")
             return jsonify({"total": 0, "vehicles": 0, "avg_speed": 0})
-        
+
         cursor = conn.cursor()
         # TỐI ƯU: Gộp 4 queries thành 1 query duy nhất
         cursor.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) AS total,
                 COUNT(DISTINCT plate) AS vehicles,
                 COALESCE(AVG(speed), 0) AS avg_speed
-            FROM violations 
+            FROM violations
             WHERE plate IS NOT NULL AND plate_image IS NOT NULL
         """)
         stats = cursor.fetchone()
-        
+
         # Query recent violations riêng (cần ORDER BY)
         cursor.execute("""
-            SELECT plate, speed, time 
-            FROM violations 
-            WHERE plate IS NOT NULL AND plate_image IS NOT NULL 
-            ORDER BY time DESC 
+            SELECT plate, speed, time
+            FROM violations
+            WHERE plate IS NOT NULL AND plate_image IS NOT NULL
+            ORDER BY time DESC
             LIMIT 5
         """)
         recent = cursor.fetchall()
         cursor.close()
-        
+
         return jsonify({
             "total": stats["total"] if stats else 0,
             "vehicles": stats["vehicles"] if stats else 0,
@@ -3546,7 +3682,7 @@ def login():
             conn = mysql.connection
             if not conn:
                 return render_template("login.html", error="Không thể kết nối database. Vui lòng kiểm tra MySQL đã chạy chưa.")
-            
+
             cur = conn.cursor()
             cur.execute("SELECT * FROM users WHERE username=%s", (username,))
             user = cur.fetchone()
@@ -3607,41 +3743,41 @@ def manage_vehicle():
         owner_name = request.args.get('owner_name', '').strip()
         address = request.args.get('address', '').strip()
         phone = request.args.get('phone', '').strip()
-        
+
         # Build query với filters
         cursor = mysql.connection.cursor()
         query = "SELECT * FROM vehicle_owner WHERE 1=1"
         params = []
-        
+
         if plate:
             query += " AND plate LIKE %s"
             params.append(f"%{plate}%")
-        
+
         if owner_name:
             query += " AND owner_name LIKE %s"
             params.append(f"%{owner_name}%")
-        
+
         if address:
             query += " AND address LIKE %s"
             params.append(f"%{address}%")
-        
+
         if phone:
             query += " AND phone LIKE %s"
             params.append(f"%{phone}%")
-        
+
         # TỐI ƯU: Thêm LIMIT để chỉ load 200 records đầu tiên
         query += " ORDER BY plate ASC LIMIT 200"
-        
+
         cursor.execute(query, params)
         data = cursor.fetchall()
         cursor.close()
-        
-        return render_template("admin_vehicle.html", data=data, 
-                              plate=plate, owner_name=owner_name, 
+
+        return render_template("admin_vehicle.html", data=data,
+                              plate=plate, owner_name=owner_name,
                               address=address, phone=phone)
     except Exception as e:
         print(f"[ERROR] manage_vehicle: {e}")
-        return render_template("admin_vehicle.html", data=[], 
+        return render_template("admin_vehicle.html", data=[],
                               plate='', owner_name='', address='', phone='')
 
 #------------------------------SỬA CHỦ XE----------------------
@@ -3658,7 +3794,7 @@ def edit_owner(plate):
             phone = request.form.get("phone", "").strip()
 
             cursor.execute("""
-                UPDATE vehicle_owner 
+                UPDATE vehicle_owner
                 SET owner_name=%s, address=%s, phone=%s
                 WHERE plate=%s
             """, (owner_name, address, phone, plate))
@@ -3692,7 +3828,7 @@ def edit_violation(id):
             limit = request.form.get("limit", "40")
 
             cursor.execute("""
-                UPDATE violations 
+                UPDATE violations
                 SET speed=%s, speed_limit=%s
                 WHERE id=%s
             """, (float(speed), float(limit), id))
@@ -3738,17 +3874,163 @@ def serve_img(filename):
         print(f"[ERROR] serve_img: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/violations/<path:filename>")
+def serve_violation_file(filename):
+    """
+    Serve violation images, videos, and plate images from multiple locations:
+    - violations/YYYY-MM-DD/PLATE/plate.jpg
+    - static/uploads/ (vehicle images)
+    - static/plate_images/ (plate images)
+    - static/violation_videos/ (videos)
+    """
+    try:
+        # Debug: Log incoming request
+        print(f"[SERVE FILE] Request: /violations/{filename}")
+        # Thử tìm trong thư mục violations/ trước (cấu trúc cũ: violations/YYYY-MM-DD/PLATE/file)
+        violations_path = os.path.join("violations", filename)
+        if os.path.exists(violations_path):
+            return send_from_directory("violations", filename)
+        
+        # Thử tìm trong static/uploads/ (vehicle images)
+        # Strip 'violation_videos/' prefix if present
+        clean_filename_uploads = filename.replace('violation_videos/', '').replace('violation_videos\\', '')
+        uploads_path = os.path.join("static", "uploads", clean_filename_uploads)
+        if os.path.exists(uploads_path):
+            return send_from_directory("static/uploads", clean_filename_uploads)
+
+        # Thử tìm trong static/plate_images/ (plate images)
+        # Strip 'violation_videos/' prefix if present
+        clean_filename_plate = filename.replace('violation_videos/', '').replace('violation_videos\\', '')
+        plate_path = os.path.join("static", "plate_images", clean_filename_plate)
+        if os.path.exists(plate_path):
+            return send_from_directory("static/plate_images", clean_filename_plate)
+        
+        # Thử tìm trong static/violation_videos/ (videos)
+        # Strip 'violation_videos/' prefix if present to avoid duplication
+        clean_filename = filename.replace('violation_videos/', '').replace('violation_videos\\', '')
+        if clean_filename != filename:
+            print(f"[SERVE FILE] Stripped prefix: '{filename}' → '{clean_filename}'")
+        video_path = os.path.join("static", "violation_videos", clean_filename)
+        print(f"[SERVE FILE] Checking video path: {video_path} (exists: {os.path.exists(video_path)})")
+        if os.path.exists(video_path):
+            # Xác định MIME type cho video
+            ext = os.path.splitext(filename)[1].lower()
+            mime_types = {
+                '.mp4': 'video/mp4',
+                '.avi': 'video/x-msvideo',
+                '.mov': 'video/quicktime',
+                '.mkv': 'video/x-matroska',
+                '.webm': 'video/webm'
+            }
+            mime_type = mime_types.get(ext, 'video/mp4')
+            
+            # Hỗ trợ Range requests cho video
+            range_header = request.headers.get('Range', None)
+            if range_header:
+                # Xử lý Range request (giống serve_demo_video)
+                file_size = os.path.getsize(video_path)
+                start = 0
+                end = file_size - 1
+                
+                range_match = range_header.replace('bytes=', '').split('-')
+                if range_match[0]:
+                    start = int(range_match[0])
+                if range_match[1]:
+                    end = int(range_match[1])
+                
+                content_length = end - start + 1
+                
+                with open(video_path, 'rb') as f:
+                    f.seek(start)
+                    data = f.read(content_length)
+                
+                response = make_response(data, 206)
+                response.headers['Content-Type'] = mime_type
+                response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['Content-Length'] = str(content_length)
+                return response
+            else:
+                response = make_response(send_from_directory("static/violation_videos", clean_filename))
+                response.headers['Content-Type'] = mime_type
+                response.headers['Accept-Ranges'] = 'bytes'
+                return response
+        
+        # 5. Nếu không tìm thấy theo đường dẫn đầy đủ, thử tìm theo tên file (basename)
+        # Database có thể lưu đường dẫn như "2025-12-15/30G55473/plate.jpg" nhưng file thực tế ở "static/plate_images/plate_xxx.jpg"
+        basename = os.path.basename(filename)
+        
+        # Thử tìm trong static/uploads/ (vehicle images) - theo tên file
+        uploads_basename_path = os.path.join("static", "uploads", basename)
+        if os.path.exists(uploads_basename_path):
+            return send_from_directory("static/uploads", basename)
+        
+        # Thử tìm trong static/plate_images/ (plate images) - theo tên file
+        plate_basename_path = os.path.join("static", "plate_images", basename)
+        if os.path.exists(plate_basename_path):
+            return send_from_directory("static/plate_images", basename)
+        
+        # Thử tìm trong static/violation_videos/ (videos) - theo tên file
+        video_basename_path = os.path.join("static", "violation_videos", basename)
+        if os.path.exists(video_basename_path):
+            # Xử lý video với Range request
+            ext = os.path.splitext(basename)[1].lower()
+            mime_types = {
+                '.mp4': 'video/mp4',
+                '.avi': 'video/x-msvideo',
+                '.mov': 'video/quicktime',
+                '.mkv': 'video/x-matroska',
+                '.webm': 'video/webm'
+            }
+            mime_type = mime_types.get(ext, 'video/mp4')
+            
+            range_header = request.headers.get('Range', None)
+            if range_header:
+                file_size = os.path.getsize(video_basename_path)
+                range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+                if range_match:
+                    start = int(range_match.group(1))
+                    end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+                    end = min(end, file_size - 1)
+                    content_length = end - start + 1
+                    
+                    with open(video_basename_path, 'rb') as f:
+                        f.seek(start)
+                        data = f.read(content_length)
+                    
+                    response = make_response(data, 206)
+                    response.headers['Content-Type'] = mime_type
+                    response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+                    response.headers['Accept-Ranges'] = 'bytes'
+                    response.headers['Content-Length'] = str(content_length)
+                    return response
+            else:
+                response = make_response(send_from_directory("static/violation_videos", basename))
+                response.headers['Content-Type'] = mime_type
+                response.headers['Accept-Ranges'] = 'bytes'
+                return response
+        
+        # Không tìm thấy file
+        print(f"[ERROR] Violation file not found: {filename} (also tried basename: {basename})")
+        return jsonify({"error": f"File not found: {filename}"}), 404
+        
+    except Exception as e:
+        print(f"[ERROR] serve_violation_file: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/video_demo/<filename>")
 def serve_demo_video(filename):
     """Serve demo videos from video_demo folder with proper MIME type and Range request support"""
     try:
         video_path = os.path.join("video_demo", filename)
-        
+
         # Kiểm tra file có tồn tại không
         if not os.path.exists(video_path):
             print(f"[ERROR] Video not found: {video_path}")
             return jsonify({"error": f"Video not found: {filename}"}), 404
-        
+
         # Xác định MIME type dựa trên extension
         mime_types = {
             '.mp4': 'video/mp4',
@@ -3757,10 +4039,10 @@ def serve_demo_video(filename):
             '.mkv': 'video/x-matroska',
             '.webm': 'video/webm'
         }
-        
+
         ext = os.path.splitext(filename)[1].lower()
         mime_type = mime_types.get(ext, 'video/mp4')
-        
+
         # Hỗ trợ Range requests cho video seeking (HTML5 video cần điều này)
         range_header = request.headers.get('Range', None)
         if not range_header:
@@ -3769,36 +4051,36 @@ def serve_demo_video(filename):
             response.headers['Content-Type'] = mime_type
             response.headers['Accept-Ranges'] = 'bytes'
             return response
-        
+
         # Xử lý Range request
         file_size = os.path.getsize(video_path)
         start = 0
         end = file_size - 1
-        
+
         # Parse Range header: "bytes=start-end"
         range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
         if range_match:
             start = int(range_match.group(1))
             if range_match.group(2):
                 end = int(range_match.group(2))
-        
+
         # Đảm bảo end không vượt quá file size
         end = min(end, file_size - 1)
         content_length = end - start + 1
-        
+
         # Đọc phần file được yêu cầu
         with open(video_path, 'rb') as f:
             f.seek(start)
             data = f.read(content_length)
-        
+
         # Tạo response với Range support
         response = Response(data, 206, mimetype=mime_type, direct_passthrough=True)
         response.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
         response.headers.add('Accept-Ranges', 'bytes')
         response.headers.add('Content-Length', str(content_length))
-        
+
         return response
-        
+
     except Exception as e:
         print(f"[ERROR] Failed to serve video {filename}: {e}")
         import traceback
@@ -3845,7 +4127,7 @@ if __name__ == "__main__":
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 5000))
     debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
-    
+
     print("=" * 60)
     print("🚗 PLATE VIOLATION SYSTEM - Starting...")
     print("=" * 60)
@@ -3854,12 +4136,12 @@ if __name__ == "__main__":
     print(f"💾 Database: {app.config['MYSQL_HOST']}/{app.config['MYSQL_DB']}")
     print(f"📱 Telegram: {'Configured' if TELEGRAM_TOKEN else 'Not configured'}")
     print(f"🎯 Detection: Frequency={DETECTION_FREQUENCY}, Scale={DETECTION_SCALE}, Device={DEVICE}")
-    
+
     # Khởi động Telegram worker thread
     start_telegram_worker()
-    
+
     print("=" * 60)
-    
+
     # Test database connection again before starting
     try:
         with app.app_context():
@@ -3870,5 +4152,5 @@ if __name__ == "__main__":
                 print("⚠️  Warning: Database connection may not be ready")
     except Exception as e:
         print(f"⚠️  Database warning: {e}")
-    
+
     app.run(host=host, port=port, debug=debug, threaded=True)

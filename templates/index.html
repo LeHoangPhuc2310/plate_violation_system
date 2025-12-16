@@ -749,12 +749,37 @@
         </div>
 
         <!-- LIVE STREAM - Hiển thị khi upload video -->
-        <div id="liveStreamContainer" style="display: none; background: #000; border-radius: 12px; padding: 10px; margin-bottom: 20px; max-width: 800px; margin-left: auto; margin-right: auto;">
-            <div style="position: relative; width: 100%; padding-top: 56.25%; background: #111; border-radius: 8px; overflow: hidden; border: 2px solid #00ff00;">
+        <div id="liveStreamContainer" style="display: none; background: #000; border-radius: 12px; padding: 10px; margin-bottom: 20px; max-width: 1280px; margin-left: auto; margin-right: auto;">
+            <div class="video-overlay-container" style="position: relative; width: 100%; padding-top: 56.25%; background: #111; border-radius: 8px; overflow: hidden; border: 2px solid #00ff00;">
+                <!-- Layer 1: Video Stream (Bottom) -->
+                <!-- Layer 1: Video Stream (Bottom) -->
                 <img id="liveStreamImg"
-                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000;"
+                     class="video-base-layer"
+                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: #000; 
+                            image-rendering: auto; 
+                            -webkit-backface-visibility: hidden;
+                            backface-visibility: hidden;
+                            transform: translateZ(0);
+                            will-change: contents; z-index: 1;"
                      alt="Live Detection Stream">
-                <div style="position: absolute; top: 8px; left: 8px; background: rgba(0,255,0,0.9); color: #000; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 11px;">
+                
+                <!-- Layer 2: Canvas Overlay (Top) -->
+                <canvas id="bboxCanvas"
+                        class="bbox-overlay-layer"
+                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2;">
+                </canvas>
+                
+                <!-- Overlay Controls -->
+                <div class="overlay-controls" style="position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; z-index: 3;">
+                    <button id="toggleBbox" class="btn btn-sm btn-primary" style="background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;">
+                        <i class="fas fa-eye"></i> <span id="bboxStatus">Bbox: ON</span>
+                    </button>
+                    <button id="toggleSpeed" class="btn btn-sm btn-primary" style="background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer;">
+                        <i class="fas fa-tachometer-alt"></i> <span id="speedStatus">Speed: ON</span>
+                    </button>
+                </div>
+                
+                <div style="position: absolute; top: 8px; left: 8px; background: rgba(0,255,0,0.9); color: #000; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 11px; z-index: 3;">
                     <i class="fas fa-circle" style="color: red; animation: blink 1s infinite;"></i> LIVE
                 </div>
                 <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 10px;">
@@ -1326,7 +1351,7 @@
     }
     
     // Thêm video player cho video đã upload (có detection/tracking)
-    // SỬ DỤNG LIVE STREAM CONTAINER ĐƠN GIẢN
+    // SỬ DỤNG LIVE STREAM CONTAINER ĐƠN GIẢN - TỐI ƯU ĐỂ KHÔNG BỊ GIẬT LAG
     function addUploadedVideoPlayer() {
         console.log('[VIDEO UPLOAD] 🎬 Starting live stream...');
 
@@ -1343,21 +1368,44 @@
         if (liveStreamContainer && liveStreamImg) {
             liveStreamContainer.style.display = 'block';
 
+            // TỐI ƯU: Thêm CSS để image render mượt hơn
+            liveStreamImg.style.imageRendering = 'auto';
+            liveStreamImg.style.willChange = 'contents';
+            
             // Đợi 1.5 giây để video processing khởi động
             setTimeout(() => {
-                liveStreamImg.src = '/video_feed?' + Date.now();
-                console.log('[VIDEO UPLOAD] ✅ Live stream started: /video_feed');
+                // DUAL-STREAM: Sử dụng smooth stream (clean, mượt) cho hiển thị chính
+                const streamUrl = '/video_feed_smooth?t=' + Date.now();
+                liveStreamImg.src = streamUrl;
+                console.log('[VIDEO UPLOAD] ✅ Live stream started: /video_feed_smooth (Smooth Stream)');
+                
+                // Khởi tạo lại canvas overlay khi video stream bắt đầu
+                setTimeout(() => {
+                    initCanvasOverlay();
+                }, 500);
             }, 1500);
 
-            // Error handling
+            // TỐI ƯU: Error handling với retry logic thông minh hơn
+            let retryCount = 0;
+            const maxRetries = 5;
+            
             liveStreamImg.onerror = function() {
-                console.log('[VIDEO STREAM] Error, retrying in 2s...');
-                setTimeout(() => {
-                    liveStreamImg.src = '/video_feed?' + Date.now();
-                }, 2000);
+                retryCount++;
+                if (retryCount <= maxRetries) {
+                    const retryDelay = Math.min(2000 * retryCount, 5000); // Tăng delay mỗi lần retry
+                    console.log(`[VIDEO STREAM] Error, retrying in ${retryDelay/1000}s... (${retryCount}/${maxRetries})`);
+                    setTimeout(() => {
+                        liveStreamImg.src = '/video_feed_smooth?t=' + Date.now();
+                    }, retryDelay);
+                } else {
+                    console.error('[VIDEO STREAM] ❌ Max retries reached. Stream may not be available.');
+                    liveStreamImg.alt = 'Không thể tải video stream. Vui lòng thử lại.';
+                }
             };
 
             liveStreamImg.onload = function() {
+                // Reset retry count khi load thành công
+                retryCount = 0;
                 console.log('[VIDEO STREAM] ✅ Stream loaded successfully');
             };
         } else {
@@ -1397,6 +1445,20 @@
                         }
                         if (liveStreamImg) {
                             liveStreamImg.src = ''; // Dừng stream
+                        }
+                        
+                        // Đóng SSE connection
+                        if (eventSource) {
+                            eventSource.close();
+                            eventSource = null;
+                            console.log('[SSE] Connection closed');
+                        }
+                        
+                        // Clear canvas
+                        const canvas = document.getElementById('bboxCanvas');
+                        if (canvas) {
+                            const ctx = canvas.getContext('2d');
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
                         }
 
                         // Xóa video player đã upload (nếu có)
@@ -1672,12 +1734,181 @@
         });
     }
     
+    // ===== CANVAS OVERLAY SYSTEM =====
+    const CANVAS_CONFIG = {
+        SSE_URL: '/detection_stream',
+        BBOX_COLORS: {
+            normal: '#00FF00',
+            violation: '#FF0000',
+            tracking: '#FFFF00'
+        },
+        BBOX_WIDTH: 3,
+        TEXT_FONT: '16px Arial',
+        TEXT_COLOR: '#FFFFFF',
+        TEXT_BG_ALPHA: 0.7,
+        SHOW_BBOX: true,
+        SHOW_SPEED: true,
+        SHOW_PLATE: true
+    };
+
+    let eventSource = null;
+    let latestDetections = [];
+    let videoResolution = [1920, 1080];
+    let speedLimit = 40;
+
+    function initCanvasOverlay() {
+        const videoImg = document.getElementById('liveStreamImg');
+        const canvas = document.getElementById('bboxCanvas');
+        
+        if (!videoImg || !canvas) {
+            console.log('[CANVAS] Video or canvas not found, skipping overlay init');
+            return;
+        }
+
+        const ctx = canvas.getContext('2d');
+
+        function syncCanvasSize() {
+            canvas.width = videoImg.clientWidth;
+            canvas.height = videoImg.clientHeight;
+        }
+
+        videoImg.addEventListener('load', syncCanvasSize);
+        window.addEventListener('resize', syncCanvasSize);
+        syncCanvasSize();
+
+        function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource(CANVAS_CONFIG.SSE_URL);
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    latestDetections = data.detections || [];
+                    videoResolution = data.video_resolution || [1920, 1080];
+                    speedLimit = data.speed_limit || 40;
+                    drawDetections(ctx, canvas);
+                } catch (e) {
+                    console.error('[SSE] Parse error:', e);
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                console.error('[SSE] Connection error:', error);
+                eventSource.close();
+                setTimeout(connectSSE, 3000);
+            };
+
+            console.log('[SSE] Connected to detection stream');
+        }
+
+        function drawDetections(ctx, canvas) {
+            if (!CANVAS_CONFIG.SHOW_BBOX) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const scaleX = canvas.width / videoResolution[0];
+            const scaleY = canvas.height / videoResolution[1];
+
+            latestDetections.forEach(det => {
+                drawBoundingBox(ctx, det, scaleX, scaleY);
+            });
+        }
+
+        function drawBoundingBox(ctx, detection, scaleX, scaleY) {
+            const [x1, y1, x2, y2] = detection.bbox;
+            const x = x1 * scaleX;
+            const y = y1 * scaleY;
+            const w = (x2 - x1) * scaleX;
+            const h = (y2 - y1) * scaleY;
+
+            const color = detection.violation 
+                ? CANVAS_CONFIG.BBOX_COLORS.violation 
+                : CANVAS_CONFIG.BBOX_COLORS.normal;
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = CANVAS_CONFIG.BBOX_WIDTH;
+            ctx.strokeRect(x, y, w, h);
+
+            if (CANVAS_CONFIG.SHOW_SPEED || CANVAS_CONFIG.SHOW_PLATE) {
+                drawTextInfo(ctx, detection, x, y, color);
+            }
+        }
+
+        function drawTextInfo(ctx, detection, x, y, color) {
+            let textLines = [];
+            textLines.push(`ID: ${detection.track_id}`);
+
+            if (CANVAS_CONFIG.SHOW_SPEED && detection.speed !== null) {
+                textLines.push(`${detection.speed.toFixed(1)} km/h`);
+            }
+
+            if (CANVAS_CONFIG.SHOW_PLATE && detection.plate) {
+                textLines.push(`🚗 ${detection.plate}`);
+            }
+
+            ctx.font = CANVAS_CONFIG.TEXT_FONT;
+            const lineHeight = 20;
+            const padding = 5;
+            const maxWidth = Math.max(...textLines.map(t => ctx.measureText(t).width));
+
+            ctx.fillStyle = `rgba(0, 0, 0, ${CANVAS_CONFIG.TEXT_BG_ALPHA})`;
+            ctx.fillRect(
+                x,
+                y - (textLines.length * lineHeight + padding),
+                maxWidth + padding * 2,
+                textLines.length * lineHeight + padding
+            );
+
+            ctx.fillStyle = color;
+            textLines.forEach((line, i) => {
+                ctx.fillText(
+                    line,
+                    x + padding,
+                    y - (textLines.length - i - 1) * lineHeight - padding
+                );
+            });
+        }
+
+        const toggleBboxBtn = document.getElementById('toggleBbox');
+        const toggleSpeedBtn = document.getElementById('toggleSpeed');
+        const bboxStatus = document.getElementById('bboxStatus');
+        const speedStatus = document.getElementById('speedStatus');
+
+        if (toggleBboxBtn) {
+            toggleBboxBtn.addEventListener('click', () => {
+                CANVAS_CONFIG.SHOW_BBOX = !CANVAS_CONFIG.SHOW_BBOX;
+                bboxStatus.textContent = `Bbox: ${CANVAS_CONFIG.SHOW_BBOX ? 'ON' : 'OFF'}`;
+                drawDetections(ctx, canvas);
+            });
+        }
+
+        if (toggleSpeedBtn) {
+            toggleSpeedBtn.addEventListener('click', () => {
+                CANVAS_CONFIG.SHOW_SPEED = !CANVAS_CONFIG.SHOW_SPEED;
+                speedStatus.textContent = `Speed: ${CANVAS_CONFIG.SHOW_SPEED ? 'ON' : 'OFF'}`;
+                drawDetections(ctx, canvas);
+            });
+        }
+
+        connectSSE();
+        console.log('[Canvas Overlay] Initialized');
+    }
+
     // Initialize on page load - TỐI ƯU: Defer heavy operations
     $(document).ready(function() {
         console.log('[INIT] Page loaded, initializing...');
         
         // TỐI ƯU: Load video players ngay
         initVideoPlayers();
+        
+        // Initialize canvas overlay
+        initCanvasOverlay();
         
         // Kiểm tra và setup upload handler ngay
         function setupUploadHandlers() {

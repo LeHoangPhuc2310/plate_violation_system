@@ -191,8 +191,11 @@
 
                     {% if r.video %}
                         <br><br>
-                        <div class="video-wrapper" style="position: relative; display: inline-block;">
-                            <video class="video-preview" onclick="openVideoModal('/violations/{{ r.video }}')" controls>
+                        <div class="video-wrapper" style="position: relative; display: inline-block; max-width: 200px;">
+                            <video class="video-preview" 
+                                   onclick="openVideoModal('/violations/{{ r.video }}')" 
+                                   controls
+                                   style="max-width: 200px; max-height: 150px; width: auto; height: auto; border-radius: 4px; cursor: pointer;">
                                 <source src="/violations/{{ r.video }}" type="video/mp4">
                                 Trình duyệt không hỗ trợ video.
                             </video>
@@ -251,6 +254,33 @@ $(document).ready(function() {
     margin-top: 5px;
     max-height: 200px;
     overflow-y: auto;
+}
+
+/* Video preview styling - Thu nhỏ video trong bảng */
+.video-preview {
+    max-width: 200px !important;
+    max-height: 150px !important;
+    width: auto !important;
+    height: auto !important;
+    border-radius: 4px;
+    cursor: pointer;
+    object-fit: contain;
+}
+
+.video-wrapper {
+    max-width: 200px;
+    display: inline-block;
+}
+
+/* Responsive video cho mobile */
+@media (max-width: 768px) {
+    .video-preview {
+        max-width: 150px !important;
+        max-height: 100px !important;
+    }
+    .video-wrapper {
+        max-width: 150px;
+    }
 }
 </style>
 {% endblock %}
