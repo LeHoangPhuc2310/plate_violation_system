@@ -409,10 +409,10 @@ def init_detector():
     """Khởi tạo detector - lazy load"""
     global detector, tracker, plate_detector_post
     if detector is None:
-        print(">>> Loading CombinedDetector (YOLOv11n)...")
+        print(">>> Loading CombinedDetector (YOLOv11n-seg SEGMENTATION)...")
         try:
-            detector = CombinedDetector(yolo_model='yolo11n.pt', device=DEVICE)
-            print(">>> ✅ CombinedDetector loaded!")
+            detector = CombinedDetector(yolo_model='yolo11n-seg.pt', device=DEVICE)
+            print(">>> ✅ CombinedDetector with SEGMENTATION loaded!")
         except Exception as e:
             print(f">>> ❌ CombinedDetector failed: {e}")
             detector = None
