@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Trang Chủ - Hệ Thống Vi Phạm Giao Thông{% endblock %}
+
+{% block page_title %}<i class="fas fa-home"></i> TRANG CHỦ{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="text-center">
+        <h3 class="mb-3">Xin chào, <span class="text-primary">{{ user }}</span></h3>
+        <p class="text-secondary mb-4">Vai trò: <strong class="text-primary">{{ role }}</strong></p>
+
+        <hr style="margin: 24px 0; border-color: var(--color-border);">
+
+        <h4 class="mb-4">Chọn chức năng:</h4>
+
+        <div class="d-flex flex-wrap justify-content-center gap-3">
+            <a href="/" class="btn btn-primary btn-lg">
+                <i class="fas fa-tachometer-alt"></i> Bảng điều khiển
+            </a>
+            <a href="/history" class="btn btn-success btn-lg">
+                <i class="fas fa-list-alt"></i> Xem vi phạm
+            </a>
+            <a href="/manual_review" class="btn btn-warning btn-lg">
+                <i class="fas fa-user-check"></i> Kiểm tra thủ công
+            </a>
+
+            {% if role == "admin" %}
+            <a href="/admin/vehicles" class="btn btn-secondary btn-lg">
+                <i class="fas fa-cogs"></i> Quản trị
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

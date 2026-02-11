@@ -1,0 +1,1980 @@
+{% extends "base.html" %}
+
+{% block title %}Kiểm Tra Thủ Công - Hệ Thống Vi Phạm Giao Thông{% endblock %}
+
+{% block page_title %}<i class="fas fa-user-check"></i> HÀNG ĐỢI KIỂM TRA THỦ CÔNG{% endblock %}
+
+{% block extra_css %}
+<style>
+* {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ========== PRODUCTION-READY REVIEW INTERFACE ========== */
+.review-workspace {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #f8f9fa;
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.review-workspace.active {
+    display: flex;
+}
+
+/* Header */
+.review-header {
+    background: #1e293b;
+    color: white;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 10;
+}
+
+.review-header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.review-header-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    font-size: 13px;
+}
+
+.review-queue-badge {
+    background: #334155;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* Main Workspace */
+.review-main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+/* Left Panel: Evidence (70% - increased for larger plate image) */
+.review-evidence-panel {
+    flex: 0 0 70%;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    border-right: 2px solid #cbd5e1;
+}
+
+.evidence-section {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.evidence-section.vehicle {
+    flex: 0 0 30%; /* Vehicle image: 30% of evidence panel */
+    border-bottom: 1px solid #334155;
+    min-height: 200px;
+}
+
+.evidence-section.plate {
+    flex: 1; /* Plate image: 70% of evidence panel - PHÓNG TO */
+    background: #0f172a;
+    min-height: 400px;
+}
+
+.evidence-label {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 5;
+}
+
+.evidence-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: move;
+    user-select: none;
+}
+
+/* Phóng to ảnh biển số - tăng kích thước tối đa */
+.evidence-section.plate .evidence-image {
+    max-width: 95%;
+    max-height: 95%;
+    min-width: 60%;
+    min-height: 60%;
+}
+
+.evidence-image.zoomable {
+    transition: transform 0.1s ease-out;
+}
+
+/* Image Controls - Cải thiện với nhiều nút logic */
+.image-controls {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 41, 59, 0.95);
+    padding: 10px 20px;
+    border-radius: 25px;
+    display: flex;
+    gap: 8px;
+    z-index: 10;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 90%;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    backdrop-filter: blur(10px);
+}
+
+.image-controls button {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: all 0.2s;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.image-controls button:hover {
+    background: rgba(59, 130, 246, 0.8);
+    border-color: rgba(59, 130, 246, 1);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+}
+
+.image-controls button:active {
+    transform: translateY(0);
+}
+
+.image-controls button i {
+    font-size: 14px;
+}
+
+/* Right Panel: Decision (30% - reduced to give more space to evidence) */
+.review-decision-panel {
+    flex: 0 0 30%;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+}
+
+/* Metadata Section */
+.review-metadata {
+    padding: 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.review-metadata-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 15px;
+}
+
+.review-violation-id {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.review-violation-uuid {
+    font-size: 11px;
+    color: #64748b;
+    font-family: monospace;
+    margin-top: 4px;
+}
+
+.review-speed-badge {
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid #fecaca;
+}
+
+.review-metadata-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    font-size: 13px;
+}
+
+.review-metadata-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.review-metadata-label {
+    color: #64748b;
+    font-size: 11px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.review-metadata-value {
+    color: #1e293b;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.review-metadata-value.speed {
+    color: #dc2626;
+    font-size: 18px;
+}
+
+/* AI Reference Section */
+.review-ai-reference {
+    padding: 20px;
+    background: #eff6ff;
+    border-bottom: 1px solid #bfdbfe;
+}
+
+.review-ai-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.review-ai-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.review-ai-box {
+    background: white;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.review-ai-ocr {
+    flex: 1;
+}
+
+.review-ai-ocr-label {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+
+.review-ai-ocr-text {
+    font-family: monospace;
+    font-size: 18px;
+    font-weight: 700;
+    color: #475569;
+    letter-spacing: 2px;
+}
+
+.review-ai-confidence {
+    text-align: right;
+}
+
+.review-ai-confidence-label {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+
+.review-ai-confidence-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: #d97706;
+}
+
+.review-ai-warning {
+    margin-top: 10px;
+    display: flex;
+    align-items: start;
+    gap: 8px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+/* Human Decision Section */
+.review-decision-form {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.review-decision-title {
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 16px;
+    margin-bottom: 20px;
+    padding-left: 12px;
+    border-left: 4px solid #3b82f6;
+}
+
+.review-decision-options {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.review-option-label {
+    display: block;
+    padding: 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.review-option-label:hover {
+    border-color: #cbd5e1;
+    background: #f8f9fa;
+}
+
+.review-option-label.selected {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.review-option-label.unreadable.selected {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+
+.review-option-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.review-option-radio {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.review-option-text {
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 15px;
+}
+
+.review-option-content {
+    padding-left: 32px;
+}
+
+.review-plate-input {
+    width: 100%;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: monospace;
+    font-size: 20px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    text-align: center;
+}
+
+.review-plate-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.review-plate-input:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.review-plate-hint {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 6px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.review-plate-validation {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.review-reason-select {
+    width: 100%;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 14px;
+}
+
+.review-reason-select:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* Action Buttons */
+.review-actions {
+    margin-top: auto;
+    padding-top: 20px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.review-action-btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 10px;
+}
+
+.review-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.review-action-btn.confirm {
+    background: #1e40af;
+    color: white;
+}
+
+.review-action-btn.confirm:hover:not(:disabled) {
+    background: #1e3a8a;
+}
+
+.review-action-btn.unreadable {
+    background: #475569;
+    color: white;
+}
+
+.review-action-btn.unreadable:hover:not(:disabled) {
+    background: #334155;
+}
+
+.review-action-btn.warning {
+    background: #f59e0b;
+    color: white;
+}
+
+.review-action-btn.warning:hover:not(:disabled) {
+    background: #d97706;
+}
+
+.review-action-btn.danger {
+    background: #dc2626;
+    color: white;
+}
+
+.review-action-btn.danger:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+.review-audit-note {
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+    margin-top: 10px;
+}
+
+/* Confirmation Modals */
+.review-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.8);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+
+.review-modal-overlay.active {
+    display: flex;
+}
+
+.review-modal {
+    background: white;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    overflow: hidden;
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);
+}
+
+.review-modal-header {
+    padding: 20px;
+    font-weight: 700;
+    font-size: 18px;
+    color: white;
+}
+
+.review-modal-header.confirm {
+    background: #1e40af;
+}
+
+.review-modal-header.unreadable {
+    background: #475569;
+}
+
+.review-modal-header.reject {
+    background: #dc2626;
+}
+
+.review-modal-body {
+    padding: 24px;
+}
+
+.review-modal-plate-display {
+    background: #f1f5f9;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    margin: 20px 0;
+    border: 1px solid #cbd5e1;
+}
+
+.review-modal-plate-label {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.review-modal-plate-value {
+    font-family: monospace;
+    font-size: 32px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: 4px;
+}
+
+.review-modal-warning {
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #92400e;
+    display: flex;
+    align-items: start;
+    gap: 10px;
+}
+
+.review-modal-footer {
+    padding: 16px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.review-modal-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.review-modal-btn.cancel {
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.review-modal-btn.cancel:hover {
+    background: #cbd5e1;
+}
+
+.review-modal-btn.submit {
+    background: #1e40af;
+    color: white;
+}
+
+.review-modal-btn.submit:hover {
+    background: #1e3a8a;
+}
+
+.review-modal-btn.unreadable-submit {
+    background: #475569;
+    color: white;
+}
+
+.review-modal-btn.unreadable-submit:hover {
+    background: #334155;
+}
+
+.review-modal-btn.reject-submit {
+    background: #dc2626;
+    color: white;
+}
+
+.review-modal-btn.reject-submit:hover {
+    background: #b91c1c;
+}
+
+/* Stats and List (Original) */
+.stats-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 16px;
+}
+
+.stats-card h2 {
+    font-size: 36px;
+    font-weight: bold;
+}
+
+.stats-card p {
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.review-card {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    background: white;
+    font-size: 15px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.review-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.review-card.pending { border-left: 5px solid #ffc107; }
+.review-card.in-review { border-left: 5px solid #17a2b8; }
+.review-card.completed { border-left: 5px solid #28a745; }
+.review-card.rejected { border-left: 5px solid #dc3545; }
+
+/* Cải thiện layout cho violation card */
+.review-card .row {
+    align-items: center;
+}
+
+.review-card .col-md-2,
+.review-card .col-md-3,
+.review-card .col-md-5 {
+    padding: 10px;
+}
+
+/* PHÓNG TO ẢNH BIỂN SỐ TRONG DANH SÁCH */
+.review-card .img-thumbnail {
+    max-width: 200px !important;
+    max-height: 200px !important;
+    min-width: 150px;
+    min-height: 150px;
+    object-fit: contain;
+    cursor: pointer;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    background: #f8f9fa;
+}
+
+.review-card .img-thumbnail:hover {
+    transform: scale(1.1);
+    border-color: #3b82f6;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    z-index: 10;
+    position: relative;
+}
+
+/* Đặc biệt phóng to ảnh biển số trong danh sách */
+.review-card .col-md-2:nth-child(2) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.review-card .col-md-2:nth-child(2) .img-thumbnail {
+    max-width: 280px !important;
+    max-height: 280px !important;
+    min-width: 220px;
+    min-height: 220px;
+    background: #000;
+    border-color: #3b82f6;
+    border-width: 3px;
+}
+
+.review-card .col-md-2:nth-child(2) .btn {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.review-card .col-md-2:nth-child(2) .btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .review-main {
+        flex-direction: column;
+    }
+    
+    .review-evidence-panel {
+        flex: 0 0 60%;
+    }
+    
+    .review-decision-panel {
+        flex: 0 0 40%;
+    }
+    
+    .evidence-section.vehicle {
+        flex: 0 0 25%;
+    }
+    
+    .evidence-section.plate {
+        flex: 1;
+    }
+    
+    /* Responsive cho filter section */
+    .card .row {
+        flex-direction: column;
+    }
+    
+    .card .col-md-8,
+    .card .col-md-4 {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+    
+    /* Responsive cho violation card */
+    .review-card .col-md-2,
+    .review-card .col-md-3,
+    .review-card .col-md-5 {
+        width: 100%;
+        margin-bottom: 15px;
+        text-align: center;
+    }
+    
+    .review-card .col-md-3.text-right {
+        justify-content: center;
+    }
+    
+    .review-card .img-thumbnail {
+        max-width: 100% !important;
+        width: auto !important;
+    }
+}
+
+/* Tablet Responsive */
+@media (min-width: 769px) and (max-width: 992px) {
+    .review-card .col-md-5 {
+        flex: 0 0 45%;
+    }
+    
+    .review-card .col-md-3 {
+        flex: 0 0 20%;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Statistics -->
+<div class="stats-card">
+    <h4><i class="fas fa-chart-bar"></i> Thống Kê Hàng Đợi</h4>
+    <div class="row mt-3">
+        <div class="col-md-3">
+            <h2 id="stat-pending">-</h2>
+            <p>Chờ Xử Lý</p>
+        </div>
+        <div class="col-md-3">
+            <h2 id="stat-in-review">-</h2>
+            <p>Đang Kiểm Tra</p>
+        </div>
+        <div class="col-md-3">
+            <h2 id="stat-completed">-</h2>
+            <p>Đã Hoàn Thành</p>
+        </div>
+        <div class="col-md-3">
+            <h2 id="stat-rejected">-</h2>
+            <p>Đã Từ Chối</p>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card p-3 mb-3" style="background: #f8f9fa; border: 1px solid #dee2e6;">
+    <div class="row align-items-end">
+        <div class="col-md-8 col-lg-9">
+            <label style="font-weight: 600; color: #495057; margin-bottom: 8px;">
+                <i class="fas fa-filter" style="color: #3b82f6;"></i> Lọc Theo Trạng Thái
+            </label>
+            <select id="status-filter" class="form-control" 
+                    style="font-size: 14px; padding: 8px 12px; border: 1px solid #ced4da; border-radius: 6px; cursor: pointer;"
+                    onchange="loadViolations()">
+                <option value="all">Tất Cả</option>
+                <option value="pending" selected>Chỉ Chờ Xử Lý</option>
+                <option value="in_review">Đang Kiểm Tra</option>
+                <option value="completed">Đã Hoàn Thành</option>
+                <option value="rejected">Đã Từ Chối</option>
+            </select>
+        </div>
+        <div class="col-md-4 col-lg-3 mt-2 mt-md-0">
+            <button class="btn btn-primary btn-block" onclick="loadViolations()" 
+                    style="font-size: 14px; padding: 10px 16px; font-weight: 600; border-radius: 6px; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);">
+                <i class="fas fa-sync"></i> Làm Mới
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Violations List -->
+<div id="violations-list"></div>
+
+<!-- PRODUCTION-READY REVIEW WORKSPACE -->
+<div id="review-workspace" class="review-workspace">
+    <!-- Header -->
+    <div class="review-header">
+        <div class="review-header-left">
+            <i class="fas fa-shield-alt" style="color: #60a5fa;"></i>
+            <span style="font-weight: 700; letter-spacing: 0.5px;">TRẠM KIỂM TRA THỦ CÔNG</span>
+            <span class="review-queue-badge" id="review-queue-badge">QUEUE: 0</span>
+        </div>
+        <div class="review-header-right">
+            <span>Người vận hành: <strong id="review-operator">ADMIN</strong></span>
+            <button onclick="closeReviewWorkspace()" style="background: #dc2626; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 600;">
+                <i class="fas fa-times"></i> Đóng
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="review-main">
+        <!-- Left: Evidence Panel -->
+        <div class="review-evidence-panel">
+            <!-- Vehicle Image -->
+            <div class="evidence-section vehicle">
+                <div class="evidence-label">
+                    <i class="fas fa-car"></i> Hình Ảnh Xe (Context)
+                </div>
+                <img id="review-vehicle-image" class="evidence-image" src="" alt="Vehicle" onclick="window.open(this.src, '_blank')">
+            </div>
+            
+            <!-- Plate Image (Zoomable) - PHÓNG TO -->
+            <div class="evidence-section plate">
+                <div class="evidence-label">
+                    <i class="fas fa-search"></i> Ảnh Biển Số (Scroll để Zoom - Phóng To)
+                </div>
+                <div id="plate-zoom-container" style="width: 100%; height: 100%; overflow: hidden; position: relative; cursor: move; display: flex; align-items: center; justify-content: center;">
+                    <img id="review-plate-image" class="evidence-image zoomable" src="" alt="Plate Evidence" style="width: auto; height: auto; max-width: 90%; max-height: 90%;">
+                </div>
+                <div class="image-controls">
+                    <button onclick="resetPlateZoom()" title="Reset View (R)">
+                        <i class="fas fa-compress-arrows-alt"></i> Reset
+                    </button>
+                    <button onclick="zoomPlateIn()" title="Phóng To (+)">
+                        <i class="fas fa-search-plus"></i> Zoom In
+                    </button>
+                    <button onclick="zoomPlateOut()" title="Thu Nhỏ (-)">
+                        <i class="fas fa-search-minus"></i> Zoom Out
+                    </button>
+                    <button onclick="adjustPlateContrast()" title="Tăng Contrast (C)">
+                        <i class="fas fa-adjust"></i> Contrast
+                    </button>
+                    <button onclick="invertPlateColors()" title="Đảo Màu (I)">
+                        <i class="fas fa-eye"></i> Invert
+                    </button>
+                    <button onclick="enhancePlateImage()" title="Tăng Cường Ảnh (E)">
+                        <i class="fas fa-magic"></i> Enhance
+                    </button>
+                    <button onclick="downloadPlateImage()" title="Tải Ảnh (D)">
+                        <i class="fas fa-download"></i> Download
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Decision Panel -->
+        <div class="review-decision-panel">
+            <!-- Metadata -->
+            <div class="review-metadata">
+                <div class="review-metadata-header">
+                    <div>
+                        <div class="review-violation-id" id="review-violation-id">#V-0000</div>
+                        <div class="review-violation-uuid" id="review-violation-uuid">UUID: ...</div>
+                    </div>
+                    <span class="review-speed-badge" id="review-speed-badge">SPEEDING</span>
+                </div>
+                <div class="review-metadata-grid">
+                    <div class="review-metadata-item">
+                        <div class="review-metadata-label">Tốc Độ Phát Hiện</div>
+                        <div class="review-metadata-value speed" id="review-speed">0 km/h</div>
+                    </div>
+                    <div class="review-metadata-item">
+                        <div class="review-metadata-label">Giới Hạn Tốc Độ</div>
+                        <div class="review-metadata-value" id="review-speed-limit">0 km/h</div>
+                    </div>
+                    <div class="review-metadata-item">
+                        <div class="review-metadata-label">Địa Điểm</div>
+                        <div class="review-metadata-value" id="review-location">-</div>
+                    </div>
+                    <div class="review-metadata-item">
+                        <div class="review-metadata-label">Thời Gian</div>
+                        <div class="review-metadata-value" id="review-time">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Reference (Read-Only) -->
+            <div class="review-ai-reference">
+                <div class="review-ai-header">
+                    <i class="fas fa-robot" style="color: #60a5fa;"></i>
+                    <span class="review-ai-title">Kết Quả Phân Tích AI</span>
+                </div>
+                <div class="review-ai-box">
+                    <div class="review-ai-ocr">
+                        <div class="review-ai-ocr-label">Văn Bản OCR Gốc</div>
+                        <div class="review-ai-ocr-text" id="review-ai-ocr-text">-</div>
+                    </div>
+                    <div class="review-ai-confidence">
+                        <div class="review-ai-confidence-label">Độ Tin Cậy</div>
+                        <div class="review-ai-confidence-value" id="review-ai-confidence">-</div>
+                    </div>
+                </div>
+                <div class="review-ai-warning">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Kết quả AI chỉ để tham khảo. Không dựa vào dữ liệu này để điền biển số.</span>
+                </div>
+            </div>
+
+            <!-- Human Decision Form -->
+            <form id="review-decision-form" class="review-decision-form">
+                <h3 class="review-decision-title">Quyết Định Của Người Vận Hành</h3>
+                
+                <div class="review-decision-options">
+                    <!-- Option A: Readable -->
+                    <label class="review-option-label" id="option-readable-label">
+                        <div class="review-option-header">
+                            <input type="radio" name="readability" value="readable" class="review-option-radio" id="radio-readable" onchange="handleReadabilityChange('readable')">
+                            <span class="review-option-text">Tôi có thể đọc rõ biển số</span>
+                        </div>
+                        <div class="review-option-content">
+                            <input type="text" 
+                                   id="review-plate-input"
+                                   class="review-plate-input"
+                                   disabled
+                                   maxlength="10"
+                                   autocomplete="off"
+                                   placeholder="NHẬP BIỂN SỐ (KHÔNG CÓ KHOẢNG CÁCH)"
+                                   oninput="validatePlateInput()">
+                            <div class="review-plate-hint">
+                                <span>Định dạng: 29A12345</span>
+                                <span class="review-plate-validation" id="plate-validation-msg" style="display: none;">Định dạng không hợp lệ</span>
+                            </div>
+                        </div>
+                    </label>
+
+                    <!-- Option B: Unreadable -->
+                    <label class="review-option-label" id="option-unreadable-label">
+                        <div class="review-option-header">
+                            <input type="radio" name="readability" value="unreadable" class="review-option-radio" id="radio-unreadable" onchange="handleReadabilityChange('unreadable')">
+                            <span class="review-option-text">Biển số không đọc được bằng mắt thường</span>
+                        </div>
+                        <div class="review-option-content">
+                            <select id="review-reason-select" class="review-reason-select" disabled>
+                                <option value="" selected disabled>Chọn lý do...</option>
+                                <option value="blur">Mờ do chuyển động (Motion Blur)</option>
+                                <option value="occlusion">Bị che khuất/Bẩn (Physical Obstruction)</option>
+                                <option value="glare">Bị chói/Phơi sáng quá mức (Overexposure)</option>
+                                <option value="missing">Không có biển số (No Plate Visible)</option>
+                            </select>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="review-actions">
+                    <!-- Primary: Nhập & Xác Nhận Biển Số -->
+                    <button type="button" 
+                            id="btn-confirm-plate"
+                            class="review-action-btn confirm"
+                            onclick="openConfirmModal()"
+                            disabled>
+                        <i class="fas fa-check-circle"></i> NHẬP & XÁC NHẬN BIỂN SỐ
+                    </button>
+                    
+                    <!-- Warning: Xác Nhận Không Đọc Được -->
+                    <button type="button" 
+                            id="btn-mark-unreadable"
+                            class="review-action-btn warning"
+                            onclick="openUnreadableModal()"
+                            disabled>
+                        <i class="fas fa-eye-slash"></i> XÁC NHẬN KHÔNG ĐỌC ĐƯỢC
+                    </button>
+                    
+                    <!-- Danger: Từ Chối Vi Phạm (Optional) -->
+                    <button type="button" 
+                            id="btn-reject-violation"
+                            class="review-action-btn danger"
+                            onclick="openRejectModal()"
+                            style="display: none;">
+                        <i class="fas fa-times-circle"></i> TỪ CHỐI VI PHẠM
+                    </button>
+                    
+                    <div class="review-audit-note">
+                        Hành động sẽ được ghi log (Audit ID: <span id="review-audit-id">-</span>)
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal: Confirm Plate -->
+<div id="modal-confirm-plate" class="review-modal-overlay">
+    <div class="review-modal">
+        <div class="review-modal-header confirm">
+            <i class="fas fa-check-circle"></i> Xác Nhận Bằng Chứng
+        </div>
+        <div class="review-modal-body">
+            <p style="color: #475569; margin-bottom: 20px;">Bạn sắp xác nhận thủ công biển số cho vi phạm này.</p>
+            <div class="review-modal-plate-display">
+                <div class="review-modal-plate-label">Bạn đã nhập:</div>
+                <div class="review-modal-plate-value" id="modal-confirm-plate-value">-</div>
+            </div>
+            <div class="review-modal-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                <div>
+                    <strong>Hành động này là cuối cùng và không thể hoàn tác.</strong><br>
+                    Hệ thống sẽ tra cứu chủ xe và phát hành phạt. Bạn chịu trách nhiệm pháp lý cho việc nhập thủ công này.
+                </div>
+            </div>
+        </div>
+        <div class="review-modal-footer">
+            <button class="review-modal-btn cancel" onclick="closeModal('modal-confirm-plate')">Hủy</button>
+            <button class="review-modal-btn submit" onclick="confirmPlateSubmission()">XÁC NHẬN</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal: Mark Unreadable -->
+<div id="modal-mark-unreadable" class="review-modal-overlay">
+    <div class="review-modal">
+        <div class="review-modal-header unreadable" style="background: #f59e0b;">
+            <i class="fas fa-eye-slash"></i> Xác Nhận Không Đọc Được
+        </div>
+        <div class="review-modal-body">
+            <p style="color: #475569; margin-bottom: 20px;">Bạn đang xác nhận biển số không đọc được bằng mắt thường.</p>
+            <ul style="list-style: disc; padding-left: 20px; margin: 20px 0; color: #475569;">
+                <li>Vi phạm sẽ được lưu trữ.</li>
+                <li><strong>Không tra cứu chủ xe</strong> sẽ được thực hiện.</li>
+                <li><strong>Không phát hành phạt</strong>.</li>
+            </ul>
+            <div style="background: #f1f5f9; padding: 12px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                <span style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 700;">Lý do:</span>
+                <span id="modal-unreadable-reason" style="margin-left: 8px; font-weight: 600; color: #1e293b;">-</span>
+            </div>
+        </div>
+        <div class="review-modal-footer">
+            <button class="review-modal-btn cancel" onclick="closeModal('modal-mark-unreadable')">Hủy</button>
+            <button class="review-modal-btn unreadable-submit" onclick="confirmUnreadableSubmission()" style="background: #f59e0b;">XÁC NHẬN KHÔNG ĐỌC ĐƯỢC</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal: Reject Violation -->
+<div id="modal-reject-violation" class="review-modal-overlay">
+    <div class="review-modal">
+        <div class="review-modal-header reject">
+            <i class="fas fa-times-circle"></i> Từ Chối Vi Phạm
+        </div>
+        <div class="review-modal-body">
+            <p style="color: #475569; margin-bottom: 20px;">Bạn đang từ chối vi phạm này vì là kết quả sai hoặc không hợp lệ.</p>
+            <ul style="list-style: disc; padding-left: 20px; margin: 20px 0; color: #475569;">
+                <li>Vi phạm sẽ được đánh dấu là <strong>từ chối</strong>.</li>
+                <li><strong>Không phát hành phạt</strong>.</li>
+                <li>Vi phạm sẽ không xuất hiện trong danh sách vi phạm hợp lệ.</li>
+            </ul>
+            <div style="margin-top: 20px;">
+                <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 8px;">Lý do từ chối:</label>
+                <textarea id="modal-reject-notes" 
+                          class="form-control" 
+                          rows="3" 
+                          placeholder="Nhập lý do từ chối vi phạm (ví dụ: Kết quả sai, Không phải vi phạm tốc độ, ...)"
+                          style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px;"></textarea>
+            </div>
+        </div>
+        <div class="review-modal-footer">
+            <button class="review-modal-btn cancel" onclick="closeModal('modal-reject-violation')">Hủy</button>
+            <button class="review-modal-btn reject-submit" onclick="confirmRejectSubmission()">TỪ CHỐI VI PHẠM</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script>
+// Wait for jQuery to load
+(function() {
+    'use strict';
+    
+let currentViolationId = null;
+let currentViolationData = null;
+let plateZoomState = { scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 };
+
+// ========== STATS & LIST MANAGEMENT ==========
+function loadStats() {
+    fetch('/api/manual_review/stats')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('stat-pending').textContent = data.stats.pending;
+                document.getElementById('stat-in-review').textContent = data.stats.in_review;
+                document.getElementById('stat-completed').textContent = data.stats.completed;
+                document.getElementById('stat-rejected').textContent = data.stats.rejected;
+            }
+        });
+}
+
+function loadViolations() {
+    const statusFilter = document.getElementById('status-filter').value;
+    const container = document.getElementById('violations-list');
+
+    fetch('/api/manual_review/pending')
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.success) {
+                displayViolations(data.violations.filter(v => {
+                    if (statusFilter === 'all') return true;
+                    if (statusFilter === 'pending') return !v.manual_review_status || v.manual_review_status === 'pending';
+                    return v.manual_review_status === statusFilter;
+                }));
+            } else {
+                throw new Error(data.error || 'Failed to load violations');
+            }
+        })
+        .catch(err => {
+            console.error('[MANUAL_REVIEW] Load violations error:', err);
+            container.innerHTML = `
+                <div class="alert alert-danger" style="font-size: 15px; padding: 30px; text-align: center;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #dc3545; margin-bottom: 15px;"></i>
+                    <h5 style="font-weight: 600; margin-bottom: 10px;">Lỗi khi tải danh sách vi phạm</h5>
+                    <p style="margin: 0;">${err.message || 'Vui lòng thử lại sau'}</p>
+                    <button class="btn btn-primary mt-3" onclick="loadViolations()">
+                        <i class="fas fa-sync"></i> Thử Lại
+                    </button>
+                </div>
+            `;
+        });
+}
+
+function displayViolations(violations) {
+    const container = document.getElementById('violations-list');
+
+    if (violations.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info" style="font-size: 15px; padding: 30px; text-align: center;">
+                <i class="fas fa-check-circle" style="font-size: 48px; color: #17a2b8; margin-bottom: 15px;"></i>
+                <h5 style="font-weight: 600; margin-bottom: 10px;">Không có vi phạm nào cần kiểm tra thủ công</h5>
+                <p style="margin: 0;">Tất cả các vi phạm đã được xử lý hoặc đang chờ xử lý.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const statusLabels = {
+        'pending': 'CHỜ XỬ LÝ',
+        'in_review': 'ĐANG KIỂM TRA',
+        'completed': 'ĐÃ HOÀN THÀNH',
+        'rejected': 'ĐÃ TỪ CHỐI'
+    };
+
+    container.innerHTML = violations.map(v => `
+        <div class="review-card ${v.manual_review_status || 'pending'}">
+            <div class="row">
+                <div class="col-md-2">
+                    <img src="/violations/${v.image}" class="img-thumbnail"
+                         onclick="window.open(this.src, '_blank')" style="cursor: pointer;">
+                </div>
+                <div class="col-md-2">
+                    ${v.plate_image ? `
+                        <div style="position: relative; display: inline-block;">
+                            <img src="/violations/${v.plate_image}?t=${Date.now()}" 
+                                 class="img-thumbnail"
+                                 onclick="window.open(this.src, '_blank')" 
+                                 style="cursor: pointer;"
+                                 title="Click để xem full size">
+                            <button onclick="event.stopPropagation(); openPlatePreview('${v.plate_image}', ${v.id})" 
+                                    class="btn btn-sm btn-primary" 
+                                    style="position: absolute; top: 5px; right: 5px; padding: 4px 8px; font-size: 11px; z-index: 20;"
+                                    title="Phóng to ảnh biển số">
+                                <i class="fas fa-search-plus"></i>
+                            </button>
+                        </div>
+                    ` : '<span class="text-muted">Không có ảnh biển</span>'}
+                </div>
+                <div class="col-md-5" style="padding-left: 20px;">
+                    <h5 style="font-weight: 700; color: #1e293b; margin-bottom: 12px; font-size: 18px;">
+                        <i class="fas fa-exclamation-triangle" style="color: #f59e0b;"></i> Vi Phạm #${v.id}
+                    </h5>
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #64748b; font-size: 13px;">Trạng Thái:</strong> 
+                        <span class="badge badge-warning" style="font-size: 12px; padding: 6px 12px; margin-left: 8px;">
+                            🟡 ${v.plate_status === 'MANUAL_REQUIRED' ? 'Cần Kiểm Tra Thủ Công' : 'Chưa Xác Định'}
+                        </span>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #64748b; font-size: 13px;">Biển Số Hiện Tại:</strong> 
+                        ${v.plate ? `<span class="text-muted" style="font-weight: 600; font-size: 15px;">${v.plate}</span>` : '<span class="text-danger font-weight-bold" style="font-size: 15px;">Biển số mờ</span>'}
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #64748b; font-size: 13px;">OCR Gốc:</strong> 
+                        <span style="font-family: monospace; font-size: 14px;">${v.original_ocr_text || '<span class="text-muted">Không có</span>'}
+                        ${v.ocr_confidence ? ` <span class="text-info" style="font-weight: 600;">(${(v.ocr_confidence * 100).toFixed(1)}%)</span>` : ''}</span>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #64748b; font-size: 13px;">Tốc độ:</strong> 
+                        <span class="text-danger font-weight-bold" style="font-size: 16px;">${v.speed.toFixed(1)} km/h</span>
+                        <span style="color: #64748b; font-size: 13px; margin-left: 8px;">
+                            (Giới hạn: ${v.speed_limit} km/h - 
+                            <span class="text-danger font-weight-bold">Vượt ${(v.speed - v.speed_limit).toFixed(1)} km/h</span>)
+                        </span>
+                    </div>
+                    <div style="margin-bottom: 0;">
+                        <strong style="color: #64748b; font-size: 13px;">Thời gian:</strong> 
+                        <span style="color: #1e293b; font-weight: 500; font-size: 14px;">${formatTimeVietnam(v.time)}</span>
+                    </div>
+                </div>
+                <div class="col-md-3 text-right" style="display: flex; align-items: center; justify-content: flex-end; padding: 10px;">
+                    ${(v.manual_review_status !== 'completed' && v.manual_review_status !== 'rejected') ? `
+                        <button class="btn btn-primary" onclick="openReviewWorkspace(${v.id})" 
+                                style="font-size: 14px; padding: 12px 24px; font-weight: 600; border-radius: 6px; 
+                                       box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3); transition: all 0.2s;
+                                       white-space: nowrap; min-width: 180px;"
+                                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(59, 130, 246, 0.4)';"
+                                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(59, 130, 246, 0.3)';">
+                            <i class="fas fa-edit"></i> Kiểm Tra Thủ Công
+                        </button>
+                    ` : v.manual_review_status ? `
+                        <span class="badge badge-${v.manual_review_status === 'completed' ? 'success' : v.manual_review_status === 'rejected' ? 'danger' : 'info'} p-3" 
+                              style="font-size: 13px; font-weight: 600; padding: 10px 16px !important; border-radius: 6px; min-width: 140px; display: inline-block; text-align: center;">
+                            ${statusLabels[v.manual_review_status] || v.manual_review_status.toUpperCase()}
+                        </span>
+                    ` : `
+                        <span class="badge badge-secondary p-3" style="font-size: 13px; font-weight: 600; padding: 10px 16px !important; border-radius: 6px; min-width: 140px; display: inline-block; text-align: center;">
+                            Chưa Xử Lý
+                        </span>
+                    `}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ========== REVIEW WORKSPACE MANAGEMENT ==========
+function openReviewWorkspace(violationId) {
+    if (!violationId) {
+        alert('Lỗi: Không có ID vi phạm');
+        return;
+    }
+    
+    currentViolationId = violationId;
+    console.log('[MANUAL_REVIEW] Opening workspace for violation:', violationId);
+
+    // First, try to claim the violation (optional - may fail if column doesn't exist)
+    fetch(`/api/manual_review/${violationId}/claim`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                // If claim fails, check if it's because it's already in review
+                if (data.error && data.error.includes('Already being reviewed')) {
+                    alert('Vi phạm này đang được người khác kiểm tra');
+                    return Promise.reject(new Error('Already in review'));
+                }
+                // Otherwise, continue anyway (claim is optional)
+                console.warn('[MANUAL_REVIEW] Claim failed, but continuing:', data.error);
+            }
+
+            // Load violation details
+            return fetch(`/api/manual_review/${violationId}`);
+        })
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.success) {
+                currentViolationData = data.violation;
+                populateReviewWorkspace(data.violation);
+                document.getElementById('review-workspace').classList.add('active');
+                document.body.style.overflow = 'hidden';
+                console.log('[MANUAL_REVIEW] Workspace opened successfully');
+            } else {
+                throw new Error(data.error || 'Failed to load violation');
+            }
+        })
+        .catch(err => {
+            console.error('[MANUAL_REVIEW] Error opening workspace:', err);
+            alert('Lỗi khi tải thông tin vi phạm: ' + (err.message || err));
+        });
+}
+
+function populateReviewWorkspace(v) {
+    // Images
+    const vehicleImg = document.getElementById('review-vehicle-image');
+    const plateImg = document.getElementById('review-plate-image');
+    
+    if (vehicleImg) {
+        vehicleImg.src = `/violations/${v.image}`;
+    }
+    
+    if (plateImg && v.plate_image) {
+        plateImg.src = `/violations/${v.plate_image}?t=${Date.now()}`;
+        // Đảm bảo ảnh load xong thì reset zoom
+        plateImg.onload = function() {
+            resetPlateZoom();
+            // Tự động phóng to một chút khi load
+            plateZoomState.scale = 1.5; // Phóng to 150% mặc định
+            updatePlateTransform();
+        };
+    }
+    
+    // Metadata
+    document.getElementById('review-violation-id').textContent = `#V-${v.id}`;
+    document.getElementById('review-speed').textContent = `${parseFloat(v.speed || 0).toFixed(1)} km/h`;
+    document.getElementById('review-speed-limit').textContent = `${v.speed_limit || 0} km/h`;
+    document.getElementById('review-time').textContent = formatTimeVietnam(v.time) || '-';
+    document.getElementById('review-location').textContent = 'Camera-01'; // TODO: Get from violation data
+    
+    // AI Reference
+    document.getElementById('review-ai-ocr-text').textContent = v.original_ocr_text || '-';
+    document.getElementById('review-ai-confidence').textContent = v.ocr_confidence ? 
+        `${(v.ocr_confidence * 100).toFixed(1)}% (Thấp)` : '-';
+    
+    // CRITICAL: Clear plate input (NO AUTO-FILL)
+    document.getElementById('review-plate-input').value = '';
+    
+    // Reset form state
+    document.getElementById('radio-readable').checked = false;
+    document.getElementById('radio-unreadable').checked = false;
+    document.getElementById('review-plate-input').disabled = true;
+    document.getElementById('review-reason-select').disabled = true;
+    document.getElementById('review-reason-select').value = '';
+    document.getElementById('btn-confirm-plate').disabled = true;
+    document.getElementById('btn-mark-unreadable').disabled = true;
+    document.getElementById('btn-reject-violation').style.display = 'block'; // Show reject button
+    document.getElementById('option-readable-label').classList.remove('selected');
+    document.getElementById('option-unreadable-label').classList.remove('selected');
+    
+    // Reset zoom
+    resetPlateZoom();
+    
+    // Update queue badge
+    updateQueueBadge();
+}
+
+function closeReviewWorkspace() {
+    if (confirm('Bạn có chắc muốn đóng? Tiến trình chưa lưu sẽ bị mất.')) {
+        document.getElementById('review-workspace').classList.remove('active');
+        document.body.style.overflow = '';
+        currentViolationId = null;
+        currentViolationData = null;
+    }
+}
+
+function updateQueueBadge() {
+    fetch('/api/manual_review/stats')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                const pending = data.stats.pending || 0;
+                document.getElementById('review-queue-badge').textContent = `QUEUE: ${pending}`;
+            }
+        });
+}
+
+// ========== READABILITY DECISION HANDLING ==========
+function handleReadabilityChange(selection) {
+    const plateInput = document.getElementById('review-plate-input');
+    const reasonSelect = document.getElementById('review-reason-select');
+    const btnConfirm = document.getElementById('btn-confirm-plate');
+    const btnUnreadable = document.getElementById('btn-mark-unreadable');
+    const optionReadable = document.getElementById('option-readable-label');
+    const optionUnreadable = document.getElementById('option-unreadable-label');
+
+    if (selection === 'readable') {
+        // Enable plate input
+        plateInput.disabled = false;
+        plateInput.focus();
+        reasonSelect.disabled = true;
+        reasonSelect.value = '';
+        
+        // Update UI
+        optionReadable.classList.add('selected');
+        optionUnreadable.classList.remove('selected');
+        
+        // Button state depends on validation
+        validatePlateInput();
+    } else {
+        // Enable reason select
+        plateInput.disabled = true;
+        plateInput.value = ''; // CRITICAL: Clear input immediately
+        reasonSelect.disabled = false;
+        
+        // Update UI
+        optionUnreadable.classList.add('selected');
+        optionReadable.classList.remove('selected');
+        
+        // Button state
+        btnConfirm.disabled = true;
+        btnUnreadable.disabled = false;
+    }
+    
+    // Always show reject button (optional action)
+    document.getElementById('btn-reject-violation').style.display = 'block';
+}
+
+function validatePlateInput() {
+    const plateInput = document.getElementById('review-plate-input');
+    const plateValue = plateInput.value.trim().toUpperCase();
+    const validationMsg = document.getElementById('plate-validation-msg');
+    const btnConfirm = document.getElementById('btn-confirm-plate');
+    
+    // Vietnamese plate format: 2 digits + 1-2 letters + 4-5 digits
+    const platePattern = /^[0-9]{2}[A-Z]{1,2}[0-9]{4,5}$/;
+    
+    if (plateValue.length === 0) {
+        validationMsg.style.display = 'none';
+        btnConfirm.disabled = true;
+        return false;
+    }
+    
+    if (platePattern.test(plateValue)) {
+        validationMsg.style.display = 'none';
+        btnConfirm.disabled = false;
+        return true;
+    } else {
+        validationMsg.style.display = 'inline';
+        btnConfirm.disabled = true;
+        return false;
+    }
+}
+
+// ========== PLATE IMAGE ZOOM/PAN ==========
+function initPlateZoom() {
+    const container = document.getElementById('plate-zoom-container');
+    const image = document.getElementById('review-plate-image');
+    
+    if (!container || !image) return;
+    
+    // Mouse wheel zoom - với tốc độ zoom tốt hơn
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomSpeed = 0.1; // Tốc độ zoom
+        const delta = e.deltaY > 0 ? (1 - zoomSpeed) : (1 + zoomSpeed);
+        plateZoomState.scale = Math.max(0.5, Math.min(5, plateZoomState.scale * delta));
+        updatePlateTransform();
+    });
+    
+    // Double-click to zoom in/out
+    container.addEventListener('dblclick', (e) => {
+        if (plateZoomState.scale < 2) {
+            plateZoomState.scale = 2;
+        } else {
+            plateZoomState.scale = 1;
+            plateZoomState.x = 0;
+            plateZoomState.y = 0;
+        }
+        updatePlateTransform();
+    });
+    
+    // Mouse drag pan
+    container.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+            plateZoomState.isDragging = true;
+            plateZoomState.startX = e.clientX - plateZoomState.x;
+            plateZoomState.startY = e.clientY - plateZoomState.y;
+        }
+    });
+    
+    container.addEventListener('mousemove', (e) => {
+        if (plateZoomState.isDragging) {
+            plateZoomState.x = e.clientX - plateZoomState.startX;
+            plateZoomState.y = e.clientY - plateZoomState.startY;
+            updatePlateTransform();
+        }
+    });
+    
+    container.addEventListener('mouseup', () => {
+        plateZoomState.isDragging = false;
+    });
+    
+    container.addEventListener('mouseleave', () => {
+        plateZoomState.isDragging = false;
+    });
+}
+
+function updatePlateTransform() {
+    const image = document.getElementById('review-plate-image');
+    if (!image) return;
+    image.style.transform = `translate(${plateZoomState.x}px, ${plateZoomState.y}px) scale(${plateZoomState.scale})`;
+    image.style.transformOrigin = 'center center';
+}
+
+function resetPlateZoom() {
+    plateZoomState.scale = 1;
+    plateZoomState.x = 0;
+    plateZoomState.y = 0;
+    updatePlateTransform();
+}
+
+function zoomPlateIn() {
+    plateZoomState.scale = Math.min(5, plateZoomState.scale * 1.2);
+    updatePlateTransform();
+}
+
+function zoomPlateOut() {
+    plateZoomState.scale = Math.max(0.5, plateZoomState.scale * 0.8);
+    updatePlateTransform();
+}
+
+function adjustPlateContrast() {
+    const image = document.getElementById('review-plate-image');
+    if (!image) return;
+    const currentFilter = image.style.filter || '';
+    if (currentFilter.includes('contrast(1.5)')) {
+        image.style.filter = currentFilter.replace('contrast(1.5)', 'contrast(1)').trim();
+    } else if (currentFilter.includes('contrast(1)')) {
+        image.style.filter = currentFilter.replace('contrast(1)', 'contrast(1.5)').trim();
+    } else {
+        image.style.filter = (currentFilter + ' contrast(1.5)').trim();
+    }
+    console.log('[PLATE] Contrast adjusted - Filter:', image.style.filter);
+}
+
+function invertPlateColors() {
+    const image = document.getElementById('review-plate-image');
+    if (!image) return;
+    const currentFilter = image.style.filter || '';
+    if (currentFilter.includes('invert(1)')) {
+        image.style.filter = currentFilter.replace('invert(1)', 'invert(0)').trim();
+    } else if (currentFilter.includes('invert(0)')) {
+        image.style.filter = currentFilter.replace('invert(0)', 'invert(1)').trim();
+    } else {
+        image.style.filter = (currentFilter + ' invert(1)').trim();
+    }
+    console.log('[PLATE] Invert colors - Filter:', image.style.filter);
+}
+
+// Tăng cường ảnh biển số
+let plateEnhancementState = { brightness: 1, contrast: 1, saturation: 1 };
+
+function enhancePlateImage() {
+    const image = document.getElementById('review-plate-image');
+    if (!image) return;
+    
+    // Tăng cường: brightness +20%, contrast +30%, saturation +10%
+    plateEnhancementState.brightness = plateEnhancementState.brightness === 1 ? 1.2 : 1;
+    plateEnhancementState.contrast = plateEnhancementState.contrast === 1 ? 1.3 : 1;
+    plateEnhancementState.saturation = plateEnhancementState.saturation === 1 ? 1.1 : 1;
+    
+    if (plateEnhancementState.brightness === 1) {
+        // Reset
+        image.style.filter = '';
+        plateEnhancementState = { brightness: 1, contrast: 1, saturation: 1 };
+        console.log('[PLATE] Enhancement reset');
+    } else {
+        // Apply enhancement
+        image.style.filter = `brightness(${plateEnhancementState.brightness}) contrast(${plateEnhancementState.contrast}) saturate(${plateEnhancementState.saturation})`;
+        console.log('[PLATE] Enhancement applied:', plateEnhancementState);
+    }
+}
+
+// Tải ảnh biển số
+function downloadPlateImage() {
+    const image = document.getElementById('review-plate-image');
+    if (!image || !image.src) {
+        alert('Không có ảnh biển số để tải');
+        return;
+    }
+    
+    // Tạo link download
+    const link = document.createElement('a');
+    link.href = image.src;
+    link.download = `plate_${currentViolationId}_${Date.now()}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    console.log('[PLATE] Downloaded:', link.download);
+}
+
+// Preview ảnh biển số trong modal (từ danh sách)
+function openPlatePreview(plateImagePath, violationId) {
+    // Tạo modal preview
+    const modal = document.createElement('div');
+    modal.id = 'plate-preview-modal';
+    modal.className = 'review-modal-overlay active';
+    modal.style.zIndex = '3000';
+    modal.innerHTML = `
+        <div class="review-modal" style="max-width: 90%; max-height: 90%;">
+            <div class="review-modal-header confirm">
+                <i class="fas fa-image"></i> Xem Ảnh Biển Số - Vi Phạm #${violationId}
+                <button onclick="closePlatePreview()" style="float: right; background: transparent; border: none; color: white; font-size: 24px; cursor: pointer;">&times;</button>
+            </div>
+            <div class="review-modal-body" style="text-align: center; padding: 20px; background: #000;">
+                <img src="/violations/${plateImagePath}?t=${Date.now()}" 
+                     style="max-width: 100%; max-height: 70vh; object-fit: contain; border: 2px solid #3b82f6; border-radius: 8px;"
+                     alt="Plate Preview">
+                <div style="margin-top: 15px;">
+                    <button onclick="openReviewWorkspace(${violationId})" class="btn btn-primary" style="padding: 10px 20px;">
+                        <i class="fas fa-edit"></i> Mở Kiểm Tra Thủ Công
+                    </button>
+                    <button onclick="downloadPlateImageFromPreview('${plateImagePath}', ${violationId})" class="btn btn-info" style="padding: 10px 20px; margin-left: 10px;">
+                        <i class="fas fa-download"></i> Tải Ảnh
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function closePlatePreview() {
+    const modal = document.getElementById('plate-preview-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function downloadPlateImageFromPreview(plateImagePath, violationId) {
+    const link = document.createElement('a');
+    link.href = `/violations/${plateImagePath}`;
+    link.download = `plate_${violationId}_${Date.now()}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// ========== CONFIRMATION MODALS ==========
+function openConfirmModal() {
+    const plateValue = document.getElementById('review-plate-input').value.trim().toUpperCase();
+    if (!validatePlateInput()) {
+        alert('Vui lòng nhập biển số hợp lệ');
+        return;
+    }
+    document.getElementById('modal-confirm-plate-value').textContent = plateValue;
+    document.getElementById('modal-confirm-plate').classList.add('active');
+}
+
+function openUnreadableModal() {
+    const reasonSelect = document.getElementById('review-reason-select');
+    if (!reasonSelect.value) {
+        alert('Vui lòng chọn lý do');
+        return;
+    }
+    const reasonText = reasonSelect.options[reasonSelect.selectedIndex].text;
+    document.getElementById('modal-unreadable-reason').textContent = reasonText;
+    document.getElementById('modal-mark-unreadable').classList.add('active');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.remove('active');
+}
+
+function confirmPlateSubmission() {
+    const plateValue = document.getElementById('review-plate-input').value.trim().toUpperCase();
+    const notes = `Manual entry by operator. Original OCR: ${currentViolationData?.original_ocr_text || 'N/A'}`;
+    
+    fetch(`/api/manual_review/${currentViolationId}/update_plate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plate: plateValue, notes, confirmed: true })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closeModal('modal-confirm-plate');
+            closeReviewWorkspace();
+            loadViolations();
+            loadStats();
+            alert(`Đã xác nhận biển số: ${data.plate}\n${data.owner_info ? 'Đã tra cứu chủ xe thành công' : 'Không tìm thấy chủ xe'}`);
+        } else {
+            alert('Lỗi: ' + data.error);
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Lỗi khi lưu kiểm tra');
+    });
+}
+
+function confirmUnreadableSubmission() {
+    const reasonSelect = document.getElementById('review-reason-select');
+    const reason = reasonSelect.options[reasonSelect.selectedIndex].text;
+    const reasonValue = reasonSelect.value;
+    const notes = `Marked as unreadable. Reason: ${reason} (${reasonValue})`;
+    
+    // Use reject endpoint for unreadable cases
+    fetch(`/api/manual_review/${currentViolationId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notes })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closeModal('modal-mark-unreadable');
+            closeReviewWorkspace();
+            loadViolations();
+            loadStats();
+            alert('Đã xác nhận vi phạm là không đọc được. Không phát hành phạt.');
+        } else {
+            alert('Lỗi: ' + (data.error || 'Không thể xác nhận không đọc được'));
+        }
+    })
+    .catch(err => {
+        console.error('Error marking as unreadable:', err);
+        alert('Lỗi khi lưu kiểm tra: ' + err.message);
+    });
+}
+
+function openRejectModal() {
+    document.getElementById('modal-reject-violation').classList.add('active');
+    // Focus on notes textarea
+    setTimeout(() => {
+        document.getElementById('modal-reject-notes').focus();
+    }, 100);
+}
+
+function confirmRejectSubmission() {
+    const notes = document.getElementById('modal-reject-notes').value.trim();
+    const rejectNotes = notes || 'Vi phạm bị từ chối bởi người vận hành';
+    
+    fetch(`/api/manual_review/${currentViolationId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: rejectNotes })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closeModal('modal-reject-violation');
+            closeReviewWorkspace();
+            loadViolations();
+            loadStats();
+            alert('Đã từ chối vi phạm thành công. Vi phạm sẽ không được phát hành phạt.');
+        } else {
+            alert('Lỗi: ' + (data.error || 'Không thể từ chối vi phạm'));
+        }
+    })
+    .catch(err => {
+        console.error('Error rejecting violation:', err);
+        alert('Lỗi khi từ chối vi phạm: ' + err.message);
+    });
+}
+
+// Make functions globally available
+window.loadStats = loadStats;
+window.loadViolations = loadViolations;
+window.openReviewWorkspace = openReviewWorkspace;
+window.closeReviewWorkspace = closeReviewWorkspace;
+window.handleReadabilityChange = handleReadabilityChange;
+window.validatePlateInput = validatePlateInput;
+window.resetPlateZoom = resetPlateZoom;
+window.zoomPlateIn = zoomPlateIn;
+window.zoomPlateOut = zoomPlateOut;
+window.adjustPlateContrast = adjustPlateContrast;
+window.invertPlateColors = invertPlateColors;
+window.enhancePlateImage = enhancePlateImage;
+window.downloadPlateImage = downloadPlateImage;
+window.openPlatePreview = openPlatePreview;
+window.closePlatePreview = closePlatePreview;
+window.downloadPlateImageFromPreview = downloadPlateImageFromPreview;
+window.openConfirmModal = openConfirmModal;
+window.openUnreadableModal = openUnreadableModal;
+window.openRejectModal = openRejectModal;
+window.closeModal = closeModal;
+window.confirmPlateSubmission = confirmPlateSubmission;
+window.confirmUnreadableSubmission = confirmUnreadableSubmission;
+window.confirmRejectSubmission = confirmRejectSubmission;
+
+// ========== HELPER FUNCTIONS ==========
+// Helper function: Format time theo múi giờ Việt Nam (UTC+7)
+function formatTimeVietnam(timeStr) {
+    if (!timeStr) return '-';
+    try {
+        const date = new Date(timeStr);
+        // Format theo múi giờ Việt Nam (UTC+7)
+        return date.toLocaleString('vi-VN', {
+            timeZone: 'Asia/Ho_Chi_Minh',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    } catch (e) {
+        return timeStr; // Trả về string gốc nếu không parse được
+    }
+}
+
+// ========== INITIALIZATION ==========
+function initializeManualReview() {
+    console.log('[MANUAL_REVIEW] Initializing...');
+    
+    // Initialize functions
+    loadStats();
+    loadViolations();
+    initPlateZoom();
+    
+    // Get operator name from session (if available)
+    // document.getElementById('review-operator').textContent = 'ADMIN'; // TODO: Get from session
+    
+    // Generate audit ID
+    const auditIdEl = document.getElementById('review-audit-id');
+    if (auditIdEl) {
+        auditIdEl.textContent = `AUDIT-${Date.now()}`;
+    }
+    
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+        loadStats();
+        loadViolations();
+    }, 30000);
+    
+    // Prevent Enter key from submitting
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.target.id === 'review-plate-input' || e.target.id === 'review-reason-select')) {
+            e.preventDefault();
+        }
+        
+        // Keyboard shortcuts for plate image controls (only when review workspace is active)
+        const workspace = document.getElementById('review-workspace');
+        if (workspace && workspace.classList.contains('active')) {
+            // R - Reset zoom
+            if (e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                resetPlateZoom();
+            }
+            // + or = - Zoom in
+            if (e.key === '+' || e.key === '=') {
+                e.preventDefault();
+                zoomPlateIn();
+            }
+            // - or _ - Zoom out
+            if (e.key === '-' || e.key === '_') {
+                e.preventDefault();
+                zoomPlateOut();
+            }
+            // C - Toggle contrast
+            if (e.key === 'c' || e.key === 'C') {
+                e.preventDefault();
+                adjustPlateContrast();
+            }
+            // I - Invert colors
+            if (e.key === 'i' || e.key === 'I') {
+                e.preventDefault();
+                invertPlateColors();
+            }
+            // E - Enhance image
+            if (e.key === 'e' || e.key === 'E') {
+                e.preventDefault();
+                enhancePlateImage();
+            }
+            // D - Download image
+            if (e.key === 'd' || e.key === 'D') {
+                e.preventDefault();
+                downloadPlateImage();
+            }
+        }
+        
+        // ESC - Close preview modal
+        if (e.key === 'Escape') {
+            const previewModal = document.getElementById('plate-preview-modal');
+            if (previewModal) {
+                closePlatePreview();
+            }
+        }
+    });
+    
+    console.log('[MANUAL_REVIEW] Initialized successfully');
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeManualReview);
+} else {
+    // DOM is already ready
+    initializeManualReview();
+}
+
+// Also support jQuery if available
+if (typeof jQuery !== 'undefined') {
+    jQuery(document).ready(initializeManualReview);
+}
+
+})(); // End IIFE
+</script>
+{% endblock %}

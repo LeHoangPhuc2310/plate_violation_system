@@ -1,0 +1,494 @@
+{% extends "base.html" %}
+
+{% block title %}Bảng Điều Khiển Hệ Thống - Hệ Thống Vi Phạm Giao Thông{% endblock %}
+
+{% block page_title %}<i class="fas fa-heartbeat"></i> BẢNG ĐIỀU KHIỂN HỆ THỐNG{% endblock %}
+
+{% block extra_css %}
+<style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--color-bg-primary);
+            color: var(--color-text-primary);
+        }
+
+        .health-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .health-header {
+            background: var(--color-bg-secondary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-md);
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: var(--border-width) solid var(--color-border);
+        }
+
+        .health-header h1 {
+            font-size: var(--font-size-xl);
+            font-weight: var(--font-weight-bold);
+            color: var(--color-primary);
+            margin: 0;
+        }
+
+        .status-badge {
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: var(--font-weight-semibold);
+            font-size: var(--font-size-base);
+            text-transform: uppercase;
+        }
+
+        .status-badge.healthy {
+            background: #10b981;
+            color: white;
+        }
+
+        .status-badge.degraded {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .status-badge.error {
+            background: #ef4444;
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--color-bg-secondary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-sm);
+            border: var(--border-width) solid var(--color-border);
+        }
+
+        .stat-card h3 {
+            font-size: var(--font-size-sm);
+            font-weight: var(--font-weight-semibold);
+            color: var(--color-text-secondary);
+            margin-bottom: var(--spacing-sm);
+            text-transform: uppercase;
+        }
+
+        .stat-card .value {
+            font-size: var(--font-size-2xl);
+            font-weight: var(--font-weight-bold);
+            color: var(--color-primary);
+        }
+
+        .stat-card .unit {
+            font-size: var(--font-size-base);
+            font-weight: var(--font-weight-medium);
+            color: var(--color-text-tertiary);
+        }
+
+        .health-section {
+            background: var(--color-bg-secondary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-md);
+            box-shadow: var(--shadow-sm);
+            border: var(--border-width) solid var(--color-border);
+        }
+
+        .health-section h2 {
+            font-size: var(--font-size-lg);
+            font-weight: var(--font-weight-bold);
+            color: var(--color-primary);
+            margin-bottom: var(--spacing-md);
+            border-bottom: 2px solid var(--color-border);
+            padding-bottom: var(--spacing-sm);
+        }
+
+        .health-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: var(--font-size-sm);
+        }
+
+        .health-table th {
+            text-align: left;
+            padding: var(--spacing-md) var(--spacing-sm);
+            background: var(--color-primary);
+            color: #ffffff;
+            font-weight: var(--font-weight-semibold);
+            font-size: var(--font-size-xs);
+            text-transform: uppercase;
+            border-bottom: 2px solid var(--color-primary-dark);
+        }
+
+        .health-table td {
+            padding: var(--spacing-md) var(--spacing-sm);
+            border-bottom: var(--border-width) solid var(--color-border-light);
+        }
+
+        .health-table tr:nth-child(even) {
+            background: var(--color-bg-tertiary);
+        }
+
+        .health-table tr:hover {
+            background: #eff6ff;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-bar-fill.low {
+            background: #10b981;
+        }
+
+        .progress-bar-fill.medium {
+            background: #f59e0b;
+        }
+
+        .progress-bar-fill.high {
+            background: #ef4444;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert.warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            color: #92400e;
+        }
+
+        .alert.error {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            color: #991b1b;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .metric-label {
+            font-weight: 500;
+            color: #4b5563;
+        }
+
+        .metric-value {
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .refresh-info {
+            text-align: center;
+            color: #9ca3af;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+
+        .icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .updating {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="health-container">
+        <!-- Header -->
+        <div class="health-header">
+            <h1><i class="fas fa-heartbeat"></i> Bảng Điều Khiển Hệ Thống</h1>
+            <div id="status-badge" class="status-badge healthy">Đang tải...</div>
+        </div>
+
+        <!-- Top Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3><i class="fas fa-clock"></i> Thời gian hoạt động</h3>
+                <div class="value" id="uptime">--</div>
+            </div>
+            <div class="stat-card">
+                <h3><i class="fas fa-microchip"></i> Sử dụng CPU</h3>
+                <div class="value" id="cpu">--<span class="unit">%</span></div>
+            </div>
+            <div class="stat-card">
+                <h3><i class="fas fa-memory"></i> Sử dụng bộ nhớ</h3>
+                <div class="value" id="memory">--<span class="unit">%</span></div>
+            </div>
+            <div class="stat-card">
+                <h3><i class="fas fa-video"></i> Trạng thái camera</h3>
+                <div class="value" id="camera" style="font-size: var(--font-size-lg);">--</div>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        <div class="health-section" id="alerts-section" style="display: none;">
+            <h2><i class="fas fa-exclamation-triangle"></i> Cảnh báo</h2>
+            <div id="alerts-container"></div>
+        </div>
+
+        <!-- Threads -->
+        <div class="health-section">
+            <h2><i class="fas fa-code-branch"></i> Trạng thái luồng xử lý</h2>
+            <div class="table-container">
+                <table class="health-table">
+                <thead>
+                    <tr>
+                        <th>Tên luồng</th>
+                        <th>Trạng thái</th>
+                        <th>Khởi động lại</th>
+                        <th>Thời gian hoạt động</th>
+                        <th>Lỗi cuối</th>
+                    </tr>
+                </thead>
+                <tbody id="threads-table"></tbody>
+            </table>
+        </div>
+
+        <!-- Queues -->
+        <div class="health-section">
+            <h2><i class="fas fa-layer-group"></i> Trạng thái hàng đợi</h2>
+            <div id="queues-container"></div>
+        </div>
+
+        <!-- Processing Performance -->
+        <div class="health-section">
+            <h2><i class="fas fa-tachometer-alt"></i> Hiệu suất xử lý</h2>
+            <div class="table-container">
+                <table class="health-table">
+                <thead>
+                    <tr>
+                        <th>Worker</th>
+                        <th>Thời gian TB (ms)</th>
+                        <th>Thời gian Max (ms)</th>
+                        <th>Số mẫu</th>
+                        <th>Trạng thái</th>
+                    </tr>
+                </thead>
+                <tbody id="processing-table"></tbody>
+            </table>
+        </div>
+
+        <!-- Throughput -->
+        <div class="health-section">
+            <h2><i class="fas fa-chart-line"></i> Thông lượng</h2>
+            <div id="throughput-container"></div>
+        </div>
+
+        <div class="refresh-info text-center text-muted" style="margin-top: var(--spacing-lg); padding: var(--spacing-md);">
+            Tự động làm mới mỗi 5 giây | Cập nhật lần cuối: <span id="last-update">--</span>
+        </div>
+    </div>
+{% endblock %}
+
+    <script>
+        // Auto-refresh every 5 seconds
+        let updateInterval;
+
+        async function fetchHealth() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                updateDashboard(data);
+            } catch (error) {
+                console.error('Failed to fetch health data:', error);
+            document.getElementById('status-badge').textContent = 'LỖI';
+            document.getElementById('status-badge').className = 'status-badge error';
+            }
+        }
+
+        function updateDashboard(data) {
+            // Update status badge
+            const statusBadge = document.getElementById('status-badge');
+            const statusMap = {
+                'healthy': 'KHỎE MẠNH',
+                'degraded': 'SUY GIẢM',
+                'error': 'LỖI'
+            };
+            statusBadge.textContent = statusMap[data.status] || data.status.toUpperCase();
+            statusBadge.className = `status-badge ${data.status}`;
+
+            // Update top stats
+            document.getElementById('uptime').textContent = data.uptime || '--';
+            document.getElementById('cpu').textContent = data.health_monitor.system?.cpu_percent?.toFixed(1) || '--';
+            document.getElementById('memory').textContent = data.health_monitor.system?.memory_percent?.toFixed(1) || '--';
+            document.getElementById('camera').textContent = data.camera_running ? '🟢 Đang chạy' : '🔴 Đã dừng';
+
+            // Update alerts
+            const alertsSection = document.getElementById('alerts-section');
+            const alertsContainer = document.getElementById('alerts-container');
+
+            const alerts = data.health_monitor.alerts || [];
+            if (alerts.length > 0) {
+                alertsSection.style.display = 'block';
+                alertsContainer.innerHTML = alerts.map(alert => {
+                    const type = alert.includes('❌') ? 'error' : 'warning';
+                    return `<div class="alert ${type}">${alert}</div>`;
+                }).join('');
+            } else {
+                alertsSection.style.display = 'none';
+            }
+
+            // Update threads
+            const threadsTable = document.getElementById('threads-table');
+            const threads = data.threads || {};
+            threadsTable.innerHTML = Object.entries(threads).map(([name, thread]) => {
+                const statusIcon = thread.is_healthy ? '🟢' : '🔴';
+                const statusText = thread.is_healthy ? 'Hoạt động tốt' : 'Có vấn đề';
+                const uptime = thread.uptime_seconds ? formatDuration(thread.uptime_seconds) : '--';
+                const lastError = thread.last_error ? thread.last_error.substring(0, 50) + '...' : 'Không có';
+
+                return `
+                    <tr>
+                        <td><strong>${name}</strong></td>
+                        <td>${statusIcon} ${statusText}</td>
+                        <td>${thread.restart_count}/${thread.max_restarts}</td>
+                        <td>${uptime}</td>
+                        <td style="color: ${thread.last_error ? '#dc2626' : '#16a34a'};">${lastError}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Update queues
+            const queuesContainer = document.getElementById('queues-container');
+            const queues = data.queues || {};
+            queuesContainer.innerHTML = Object.entries(queues).map(([name, queue]) => {
+                const percent = queue.percent_full || 0;
+                const barClass = percent < 50 ? 'low' : percent < 80 ? 'medium' : 'high';
+                const nameMap = {
+                    'detection_queue': 'Hàng đợi phát hiện',
+                    'alpr_realtime_queue': 'Hàng đợi ALPR thời gian thực',
+                    'alpr_proactive_queue': 'Hàng đợi ALPR chủ động',
+                    'violation_queue': 'Hàng đợi vi phạm',
+                    'stream_queue_clean': 'Hàng đợi stream sạch'
+                };
+
+                return `
+                    <div class="metric-row">
+                        <span class="metric-label">${nameMap[name] || name}</span>
+                        <span class="metric-value">${queue.size}/${queue.maxsize} (${percent.toFixed(1)}%)</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill ${barClass}" style="width: ${percent}%"></div>
+                    </div>
+                    <br>
+                `;
+            }).join('');
+
+            // Update processing performance
+            const processingTable = document.getElementById('processing-table');
+            const processing = data.health_monitor.processing || {};
+            processingTable.innerHTML = Object.entries(processing).map(([name, metrics]) => {
+                const statusIcon = metrics.is_healthy ? '🟢' : '🟡';
+                const statusText = metrics.is_healthy ? 'Tốt' : 'Chậm';
+
+                return `
+                    <tr>
+                        <td><strong>${name}</strong></td>
+                        <td>${metrics.avg_ms.toFixed(2)}</td>
+                        <td>${metrics.max_ms.toFixed(2)}</td>
+                        <td>${metrics.sample_count}</td>
+                        <td>${statusIcon} ${statusText}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Update throughput
+            const throughputContainer = document.getElementById('throughput-container');
+            const throughput = data.health_monitor.throughput || {};
+            throughputContainer.innerHTML = Object.entries(throughput).map(([name, metrics]) => {
+                const nameMap = {
+                    'detection_rate': 'Tỷ lệ phát hiện',
+                    'alpr_rate': 'Tỷ lệ nhận diện biển số',
+                    'violation_rate': 'Tỷ lệ vi phạm'
+                };
+                return `
+                    <div class="metric-row">
+                        <span class="metric-label">${nameMap[name] || name}</span>
+                        <span class="metric-value">${metrics.rate_per_sec.toFixed(2)} mục/giây</span>
+                    </div>
+                `;
+            }).join('');
+
+            // Update last update time
+            // Format theo múi giờ Việt Nam (UTC+7)
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('vi-VN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'Asia/Ho_Chi_Minh'
+            });
+            const dateStr = now.toLocaleDateString('vi-VN', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                timeZone: 'Asia/Ho_Chi_Minh'
+            });
+            document.getElementById('last-update').textContent = `${dateStr} ${timeStr}`;
+        }
+
+        function formatDuration(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+
+            if (days > 0) return `${days}d ${hours}h`;
+            if (hours > 0) return `${hours}h ${minutes}m`;
+            return `${minutes}m`;
+        }
+
+        // Initial load
+        fetchHealth();
+
+        // Auto-refresh
+        updateInterval = setInterval(fetchHealth, 5000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            clearInterval(updateInterval);
+        });
+    </script>
+{% endblock %}

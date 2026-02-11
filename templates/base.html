@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Hệ thống nhận diện biển số và phát hiện vi phạm tốc độ - Đại học Bình Dương">
+    <meta name="author" content="Lê Hoàng Phúc - MSSV 190501014">
+    <title>{% block title %}🚗 Hệ Thống Vi Phạm Tốc Độ{% endblock %}</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/static/img/logo_bdu.png">
+
+    <!-- Bootstrap - TỐI ƯU: Preconnect để tăng tốc -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome 6 - TỐI ƯU: Preconnect -->
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <!-- Google font - TỐI ƯU: Preconnect và display=swap -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Design System CSS -->
+    <link rel="stylesheet" href="/static/css/design-system.css">
+
+    <style>
+        :root {
+            --primary-color: #0066ff;
+            --primary-dark: #0052cc;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #17a2b8;
+            --dark-color: #1a1a2e;
+            --light-bg: #f8fafc;
+            --card-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+            /* Font Size System - Chuẩn Typography */
+            --font-size-base: 14px;
+            --font-size-sm: 12px;
+            --font-size-xs: 11px;
+            --font-size-lg: 16px;
+            --font-size-xl: 18px;
+            --font-size-2xl: 20px;
+            --font-size-3xl: 24px;
+
+            /* Font Weight System */
+            --font-weight-normal: 400;
+            --font-weight-medium: 500;
+            --font-weight-semibold: 600;
+            --font-weight-bold: 700;
+            --font-weight-extrabold: 800;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 8px;
+            min-height: 100vh;
+            font-size: var(--font-size-base);
+            font-weight: var(--font-weight-normal);
+            line-height: 1.6;
+            color: #2c3e50;
+        }
+
+        /* ========== HEADER STYLES ========== */
+        .school-header {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            padding: 8px 12px;
+            border-radius: 8px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 8px;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .school-logo {
+            width: 35px;
+            height: 35px;
+            object-fit: contain;
+            filter: drop-shadow(0 1px 3px rgba(0,0,0,0.1));
+            transition: var(--transition);
+        }
+
+        .school-logo:hover {
+            transform: scale(1.05);
+        }
+
+        .school-name {
+            margin: 0;
+            font-weight: var(--font-weight-bold);
+            background: linear-gradient(135deg, #b40000 0%, #8b0000 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-size: var(--font-size-base);
+            letter-spacing: -0.3px;
+        }
+
+        .school-branch {
+            margin: 0;
+            font-weight: var(--font-weight-semibold);
+            color: #555;
+            font-size: var(--font-size-xs);
+            letter-spacing: 0.3px;
+        }
+
+        .author-box {
+            font-size: var(--font-size-xs);
+            font-weight: var(--font-weight-semibold);
+            padding: 6px 10px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 6px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.08);
+            white-space: nowrap;
+            border: 1px solid rgba(0,0,0,0.05);
+            color: #444;
+        }
+
+        .author-box b {
+            color: var(--primary-color);
+        }
+
+        /* ========== NAVBAR STYLES ========== */
+        .nav-bar-container {
+            margin-bottom: 12px;
+        }
+
+        .nav-bar {
+            display: flex;
+            gap: 5px;
+            background: linear-gradient(135deg, var(--dark-color) 0%, #16213e 100%);
+            padding: 8px 12px;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+            flex-wrap: wrap;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            color: rgba(255,255,255,0.85);
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: var(--font-weight-medium);
+            font-size: var(--font-size-sm);
+            transition: var(--transition);
+            border: 1px solid transparent;
+        }
+
+        .nav-item:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            text-decoration: none;
+            transform: translateY(-2px);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(0,102,255,0.4);
+        }
+
+        .nav-item i {
+            font-size: var(--font-size-sm);
+        }
+
+        /* ========== CARD STYLES ========== */
+        .card {
+            border-radius: 10px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid rgba(0,0,0,0.05);
+            background: #fff;
+            transition: var(--transition);
+        }
+
+        .card:hover {
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+
+        /* ========== TABLE STYLES ========== */
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border-radius: 8px;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
+        }
+
+        .table-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: var(--primary-color);
+            border-radius: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+            color: #ffffff;
+            z-index: 9;
+            font-weight: var(--font-weight-bold);
+            text-transform: uppercase;
+            font-size: var(--font-size-sm);
+            letter-spacing: 1px;
+            padding: 14px 12px;
+            border: none;
+            box-shadow: 0 3px 12px rgba(74, 144, 226, 0.3);
+        }
+
+        th, td {
+            border: 1px solid #dee2e6;
+            padding: 12px 14px;
+            text-align: center;
+            vertical-align: middle !important;
+            font-size: var(--font-size-base);
+            font-weight: var(--font-weight-normal);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.5;
+        }
+
+        tbody tr {
+            transition: var(--transition);
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tbody tr:hover {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            transform: scale(1.01);
+            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.25);
+        }
+
+        tbody tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        tbody tr:nth-child(even):hover {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            transform: scale(1.01);
+            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.25);
+        }
+
+        /* ========== IMAGE STYLES ========== */
+        .history-img {
+            width: 80px;
+            border-radius: 6px;
+            border: 2px solid var(--primary-color);
+            object-fit: cover;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .history-img:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 12px rgba(0, 102, 255, 0.25);
+        }
+
+        .plate-img {
+            width: 120px;
+            height: 50px;
+            border-radius: 6px;
+            border: 3px solid #f57c00;
+            object-fit: contain;
+            box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+            transition: var(--transition);
+            cursor: pointer;
+            background: #fff;
+            image-rendering: crisp-edges;
+        }
+
+        .plate-img:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(255, 152, 0, 0.5);
+        }
+
+        /* ========== FORM STYLES ========== */
+        .form-group label {
+            font-weight: var(--font-weight-semibold);
+            color: #2c3e50;
+            margin-bottom: 8px;
+            font-size: var(--font-size-base);
+        }
+
+        .form-group label i {
+            margin-right: 6px;
+            color: var(--primary-color);
+        }
+
+        .form-control {
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            padding: 10px 14px;
+            font-size: var(--font-size-base);
+            font-weight: var(--font-weight-normal);
+            font-family: inherit;
+            transition: var(--transition);
+        }
+
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.15);
+        }
+
+        .input-group-text {
+            border-radius: 8px 0 0 8px;
+            font-size: var(--font-size-base);
+            font-weight: var(--font-weight-medium);
+        }
+
+        /* ========== ALERT STYLES ========== */
+        .alert {
+            border-radius: 10px;
+            border-left: 4px solid;
+            font-weight: var(--font-weight-medium);
+            font-size: var(--font-size-base);
+            padding: 14px 18px;
+        }
+
+        .alert-info {
+            border-left-color: var(--info-color);
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+        }
+
+        .alert-success {
+            border-left-color: var(--success-color);
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+        }
+
+        .alert-danger {
+            border-left-color: var(--danger-color);
+            background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+        }
+
+        .alert-warning {
+            border-left-color: var(--warning-color);
+            background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+        }
+
+        /* ========== VIDEO STYLES ========== */
+        .video-preview {
+            border-radius: 10px;
+            border: 3px solid var(--success-color);
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .video-preview:hover {
+            transform: scale(1.03);
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+        }
+
+        /* ========== BADGE STYLES ========== */
+        .status-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: var(--font-weight-semibold);
+            font-size: var(--font-size-sm);
+            letter-spacing: 0.3px;
+            display: inline-block;
+        }
+
+        .status-sent {
+            background: linear-gradient(135deg, var(--success-color) 0%, #1e7e34 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+        }
+
+        .status-pending {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #e0a800 100%);
+            color: #333;
+            box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+        }
+
+        .status-failed {
+            background: linear-gradient(135deg, var(--danger-color) 0%, #bd2130 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+        }
+
+        /* ========== VIDEO MODAL STYLES ========== */
+        .video-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.95);
+            backdrop-filter: blur(5px);
+        }
+
+        .video-modal-content {
+            margin: auto;
+            display: block;
+            width: 80%;
+            max-width: 900px;
+            margin-top: 50px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        .close-video {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .close-video:hover {
+            color: var(--danger-color);
+            transform: scale(1.1);
+        }
+
+        /* ========== BUTTON STYLES ========== */
+        .btn {
+            border-radius: 6px;
+            font-weight: var(--font-weight-semibold);
+            font-size: var(--font-size-sm);
+            transition: var(--transition);
+            box-shadow: 0 1px 5px rgba(0,0,0,0.08);
+            padding: 8px 14px;
+            border: none;
+            font-family: inherit;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn i {
+            margin-right: 6px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success-color) 0%, #1e7e34 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger-color) 0%, #bd2130 100%);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #e0a800 100%);
+            color: #333;
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, var(--info-color) 0%, #117a8b 100%);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, var(--secondary-color) 0%, #545b62 100%);
+        }
+
+        /* ========== BADGE STYLES ========== */
+        .badge {
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-weight: var(--font-weight-semibold);
+            font-size: var(--font-size-xs);
+            letter-spacing: 0.3px;
+        }
+
+        .badge-primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+        }
+
+        .badge-success {
+            background: linear-gradient(135deg, var(--success-color) 0%, #1e7e34 100%);
+        }
+
+        .badge-danger {
+            background: linear-gradient(135deg, var(--danger-color) 0%, #bd2130 100%);
+        }
+
+        .badge-warning {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #e0a800 100%);
+            color: #333;
+        }
+
+        .badge-info {
+            background: linear-gradient(135deg, var(--info-color) 0%, #117a8b 100%);
+        }
+
+        /* ========== PAGE TITLE ========== */
+        .page-title {
+            font-weight: var(--font-weight-bold);
+            color: var(--dark-color);
+            margin-bottom: 12px;
+            font-size: var(--font-size-xl);
+            letter-spacing: -0.5px;
+        }
+
+        .page-title i {
+            margin-right: 6px;
+            color: var(--primary-color);
+        }
+
+        /* ========== ANIMATIONS ========== */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        /* ========== RESPONSIVE ========== */
+        @media (max-width: 768px) {
+            .school-name {
+                font-size: 14px;
+            }
+
+            .school-branch {
+                font-size: 10px;
+            }
+
+            .author-box {
+                font-size: 9px;
+                padding: 4px 8px;
+            }
+
+            .nav-bar {
+                flex-direction: column;
+            }
+
+            .nav-item {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="school-header d-flex align-items-center justify-content-between flex-wrap">
+    <div class="d-flex align-items-center">
+        <img src="/static/img/logo_bdu.png" class="school-logo" alt="Logo">
+        <div class="ml-3">
+            <h2 class="school-name">TRƯỜNG ĐẠI HỌC BÌNH DƯƠNG</h2>
+            <h4 class="school-branch">PHÂN HIỆU CÀ MAU</h4>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center flex-wrap mt-2 mt-md-0">
+        <div class="author-box mr-3 mb-2 mb-md-0">
+            SINH VIÊN THỰC HIỆN: <b>LÊ HOÀNG PHÚC</b> — MSSV <b>190501014</b>
+        </div>
+        <div class="d-flex align-items-center">
+            <span class="mr-3" style="font-weight:600; color:#333;">
+                👤 {{ session.get('user', 'Khách') }}
+                — <span style="color:#007bff;">{{ session.get('role', 'viewer') }}</span>
+            </span>
+            <a href="/home" class="btn btn-primary btn-sm mr-2">
+                <i class="fas fa-home"></i> Trang chủ
+            </a>
+            <a href="/logout" class="btn btn-danger btn-sm">
+                <i class="fas fa-sign-out-alt"></i> Đăng Xuất
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Navigation Bar -->
+<div class="nav-bar-container">
+    <div class="nav-bar">
+        <a href="/" class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+            <i class="fas fa-tachometer-alt"></i>
+            <span>Bảng điều khiển</span>
+        </a>
+        <a href="/history" class="nav-item {% if request.endpoint == 'history' %}active{% endif %}">
+            <i class="fas fa-list-alt"></i>
+            <span>Xem vi phạm</span>
+        </a>
+        <a href="/manual_review" class="nav-item {% if request.endpoint == 'manual_review_page' %}active{% endif %}">
+            <i class="fas fa-user-check"></i>
+            <span>Kiểm tra thủ công</span>
+        </a>
+        {% if session.get('role') == 'admin' %}
+        <a href="/admin/vehicles" class="nav-item {% if request.endpoint == 'manage_vehicle' %}active{% endif %}">
+            <i class="fas fa-cogs"></i>
+            <span>Quản trị</span>
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Page Title -->
+<h2 class="page-title">{% block page_title %}{% endblock %}</h2>
+
+<!-- Main Content -->
+{% block content %}{% endblock %}
+
+<!-- Video Modal -->
+<div id="videoModal" class="video-modal">
+    <span class="close-video" onclick="closeVideoModal()">&times;</span>
+    <video class="video-modal-content" id="modalVideo" controls>
+        Trình duyệt không hỗ trợ video.
+    </video>
+</div>
+
+<script>
+function openVideoModal(videoSrc) {
+    const modal = document.getElementById('videoModal');
+    const video = document.getElementById('modalVideo');
+    video.src = videoSrc;
+    modal.style.display = 'block';
+}
+
+function closeVideoModal() {
+    const modal = document.getElementById('videoModal');
+    const video = document.getElementById('modalVideo');
+    video.pause();
+    video.src = '';
+    modal.style.display = 'none';
+}
+
+// Đóng modal khi click bên ngoài
+window.onclick = function(event) {
+    const modal = document.getElementById('videoModal');
+    if (event.target == modal) {
+        closeVideoModal();
+    }
+}
+</script>
+
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>
+
